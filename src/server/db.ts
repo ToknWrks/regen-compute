@@ -148,7 +148,50 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
     );
 
     CREATE INDEX IF NOT EXISTS idx_magic_links_token ON magic_links(token);
+
+    CREATE TABLE IF NOT EXISTS referral_rewards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      referrer_user_id INTEGER NOT NULL REFERENCES users(id),
+      referred_user_id INTEGER NOT NULL REFERENCES users(id),
+      reward_type TEXT NOT NULL DEFAULT 'extra_credit_retirement',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'fulfilled', 'expired')),
+      retirement_tx_hash TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      fulfilled_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer ON referral_rewards(referrer_user_id);
+    CREATE INDEX IF NOT EXISTS idx_referral_rewards_status ON referral_rewards(status);
   `);
+
+  // Migrations for existing DBs — add referral columns to users table
+  const existingCols = (_db.pragma("table_info(users)") as Array<{ name: string }>).map((c) => c.name);
+
+  if (!existingCols.includes("referral_code")) {
+    _db.exec(`ALTER TABLE users ADD COLUMN referral_code TEXT`);
+    console.log("Migration: added referral_code column");
+  }
+
+  _db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)`);
+
+  if (!existingCols.includes("referred_by")) {
+    _db.exec(`ALTER TABLE users ADD COLUMN referred_by INTEGER`);
+    console.log("Migration: added referred_by column");
+  }
+
+  // Backfill referral codes for users that don't have one
+  const usersWithoutCodes = _db.prepare(
+    "SELECT id FROM users WHERE referral_code IS NULL"
+  ).all() as { id: number }[];
+  for (const u of usersWithoutCodes) {
+    _db.prepare("UPDATE users SET referral_code = ? WHERE id = ?").run(
+      generateReferralCode(),
+      u.id
+    );
+  }
+  if (usersWithoutCodes.length > 0) {
+    console.log(`Migration: backfilled ${usersWithoutCodes.length} referral codes`);
+  }
 
   return _db;
 }
@@ -157,12 +200,18 @@ export function generateApiKey(): string {
   return "rfa_" + randomBytes(24).toString("hex");
 }
 
+export function generateReferralCode(): string {
+  return "ref_" + randomBytes(8).toString("hex");
+}
+
 export interface User {
   id: number;
   api_key: string;
   email: string | null;
   balance_cents: number;
   stripe_customer_id: string | null;
+  referral_code: string;
+  referred_by: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -188,12 +237,18 @@ export function getUserByEmail(db: Database.Database, email: string): User | und
   return db.prepare("SELECT * FROM users WHERE email = ?").get(email) as User | undefined;
 }
 
-export function createUser(db: Database.Database, email: string | null, stripeCustomerId: string | null): User {
+export function createUser(
+  db: Database.Database,
+  email: string | null,
+  stripeCustomerId: string | null,
+  referredByUserId?: number
+): User {
   const apiKey = generateApiKey();
+  const referralCode = generateReferralCode();
   const stmt = db.prepare(
-    "INSERT INTO users (api_key, email, stripe_customer_id) VALUES (?, ?, ?)"
+    "INSERT INTO users (api_key, email, stripe_customer_id, referral_code, referred_by) VALUES (?, ?, ?, ?, ?)"
   );
-  const result = stmt.run(apiKey, email, stripeCustomerId);
+  const result = stmt.run(apiKey, email, stripeCustomerId, referralCode, referredByUserId ?? null);
   return db.prepare("SELECT * FROM users WHERE id = ?").get(result.lastInsertRowid) as User;
 }
 
@@ -594,6 +649,58 @@ export function getMonthlyAttributions(db: Database.Database, subscriberId: numb
     WHERE a.subscriber_id = ?
     ORDER BY pr.run_date ASC
   `).all(subscriberId) as MonthlyAttribution[];
+}
+
+// --- Referral helpers ---
+
+export function getUserByReferralCode(db: Database.Database, code: string): User | undefined {
+  return db.prepare("SELECT * FROM users WHERE referral_code = ?").get(code) as User | undefined;
+}
+
+export function setUserReferredBy(db: Database.Database, userId: number, referrerUserId: number): void {
+  db.prepare(
+    "UPDATE users SET referred_by = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(referrerUserId, userId);
+}
+
+export interface ReferralReward {
+  id: number;
+  referrer_user_id: number;
+  referred_user_id: number;
+  reward_type: string;
+  status: "pending" | "fulfilled" | "expired";
+  retirement_tx_hash: string | null;
+  created_at: string;
+  fulfilled_at: string | null;
+}
+
+export function createReferralReward(
+  db: Database.Database,
+  referrerUserId: number,
+  referredUserId: number,
+  rewardType: string = "extra_credit_retirement"
+): ReferralReward {
+  const result = db.prepare(
+    "INSERT INTO referral_rewards (referrer_user_id, referred_user_id, reward_type) VALUES (?, ?, ?)"
+  ).run(referrerUserId, referredUserId, rewardType);
+  return db.prepare("SELECT * FROM referral_rewards WHERE id = ?").get(result.lastInsertRowid) as ReferralReward;
+}
+
+export function fulfillReferralReward(
+  db: Database.Database,
+  rewardId: number,
+  retirementTxHash: string
+): void {
+  db.prepare(
+    "UPDATE referral_rewards SET status = 'fulfilled', retirement_tx_hash = ?, fulfilled_at = datetime('now') WHERE id = ?"
+  ).run(retirementTxHash, rewardId);
+}
+
+export function getReferralCount(db: Database.Database, userId: number): number {
+  const row = db.prepare(
+    "SELECT COUNT(*) AS count FROM users WHERE referred_by = ?"
+  ).get(userId) as { count: number } | undefined;
+  return row?.count ?? 0;
 }
 
 // --- Magic link helpers ---

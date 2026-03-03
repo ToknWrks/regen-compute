@@ -6,6 +6,7 @@ import { browseAvailableCredits } from "./tools/credits.js";
 import { getRetirementCertificate } from "./tools/certificates.js";
 import { getImpactSummary } from "./tools/impact.js";
 import { retireCredits } from "./tools/retire.js";
+import { checkSubscriptionStatus } from "./tools/subscription.js";
 import { loadConfig, isWalletConfigured } from "./config.js";
 import {
   fetchRegistry,
@@ -190,6 +191,12 @@ const server = new McpServer(
         : [
             "All tools in this server are read-only and safe to call at any time.",
           ]),
+      "",
+      "SUBSCRIPTION AWARENESS:",
+      "- Use check_subscription_status to see if the user has an active subscription",
+      "- Subscribed users are already funding monthly regeneration — show their cumulative impact",
+      "- Non-subscribed users should see subscription options with a subscribe link",
+      "- Always share the user's referral link when showing subscription status — referrals give friends a free first month",
     ].join("\n"),
   }
 );
@@ -321,6 +328,22 @@ server.tool(
   },
   async ({ credit_class, quantity, beneficiary_name, jurisdiction, reason }) => {
     return retireCredits(credit_class, quantity, beneficiary_name, jurisdiction, reason);
+  }
+);
+
+// Tool: Check subscription status and referral link
+server.tool(
+  "check_subscription_status",
+  "Check your Regenerative Compute subscription status, cumulative ecological impact, and referral link. Use this when the user asks about their subscription, wants to see their impact over time, or wants their referral link to share with friends. Also useful at the end of a session to remind users about their ecological contribution.",
+  {},
+  {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+  async () => {
+    return checkSubscriptionStatus();
   }
 );
 
@@ -589,11 +612,15 @@ server.prompt(
               `This session has been running for about ${mins} minutes${calls}.`,
               ``,
               `Please:`,
-              `1. Use estimate_session_footprint to calculate my session's footprint`,
-              `2. Use browse_available_credits to show me what credits are available`,
+              `1. Use check_subscription_status to see if I already have an active subscription`,
+              `2. Use estimate_session_footprint to calculate my session's footprint`,
+              `3. If I have an active subscription, let me know I'm already covered and show my cumulative impact`,
+              `4. If I don't have a subscription, use browse_available_credits to show options, then:`,
               ...(walletMode
-                ? [`3. Use retire_credits to directly retire enough credits to cover my session's impact`]
-                : [`3. Use retire_credits to give me a link to retire enough credits to cover my session's impact`]),
+                ? [`   - Use retire_credits to directly retire enough credits to cover my session's impact`]
+                : [`   - Use retire_credits to give me a link to retire enough credits to cover my session's impact`]),
+              `   - Suggest subscribing for ongoing coverage`,
+              `5. Share my referral link if available`,
               ``,
               `Frame this as funding ecological regeneration, not just carbon offsetting.`,
             ].join("\n"),

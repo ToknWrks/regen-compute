@@ -26,6 +26,10 @@ import {
   createSubscriber,
   updateSubscriber,
   updateSubscriberStatus,
+  getUserByReferralCode,
+  setUserReferredBy,
+  createReferralReward,
+  getReferralCount,
 } from "./db.js";
 
 // 5-minute in-memory cache for network stats
@@ -58,6 +62,15 @@ export function createRoutes(stripe: Stripe, db: Database.Database, baseUrl: str
     const seedlingUrl = config?.stripePaymentLinkSeedling ?? process.env.STRIPE_PAYMENT_LINK_SEEDLING ?? "#";
     const groveUrl = config?.stripePaymentLinkGrove ?? process.env.STRIPE_PAYMENT_LINK_GROVE ?? "#";
     const forestUrl = config?.stripePaymentLinkForest ?? process.env.STRIPE_PAYMENT_LINK_FOREST ?? "#";
+
+    // Check for referral code
+    const refCode = (_req.query.ref as string) || "";
+    let referralValid = false;
+    if (refCode) {
+      const referrer = getUserByReferralCode(db, refCode);
+      referralValid = !!referrer;
+    }
+    const hasPriceIds = !!(config?.stripePriceIdSeedling && config?.stripePriceIdGrove && config?.stripePriceIdForest);
 
     const stats = await getCachedStats();
     const totalRetirements = stats ? stats.totalRetirements.toLocaleString() : "--";
@@ -235,6 +248,14 @@ export function createRoutes(stripe: Stripe, db: Database.Database, baseUrl: str
     .footer a { color: #2d6a4f; text-decoration: none; }
     .footer a:hover { text-decoration: underline; }
 
+    /* Referral banner */
+    .ref-banner {
+      background: linear-gradient(135deg, #2d6a4f, #52b788);
+      color: #fff; text-align: center;
+      padding: 16px 24px; font-size: 16px; font-weight: 600;
+    }
+    .ref-banner span { font-size: 22px; }
+
     /* Mobile */
     @media (max-width: 700px) {
       .hero { padding: 48px 0 40px; }
@@ -249,6 +270,8 @@ export function createRoutes(stripe: Stripe, db: Database.Database, baseUrl: str
   </style>
 </head>
 <body>
+
+  ${referralValid ? `<div class="ref-banner"><span>Your friend invited you</span> — first month free!</div>` : ""}
 
   <!-- Hero -->
   <section class="hero">
@@ -297,21 +320,27 @@ export function createRoutes(stripe: Stripe, db: Database.Database, baseUrl: str
         <div class="tier">
           <div class="tier-name">Seedling</div>
           <div class="tier-price">$2.50<span>/mo</span></div>
-          <div class="tier-desc">~0.5 carbon credits retired per month. Perfect for individual developers.</div>
-          <a class="tier-btn" href="${seedlingUrl}">Subscribe</a>
+          <div class="tier-desc">~0.5 carbon credits retired per month. Perfect for individual developers.${referralValid ? "<br><strong>First month free!</strong>" : ""}</div>
+          ${hasPriceIds
+            ? `<button class="tier-btn" onclick="subscribe('seedling')">Subscribe</button>`
+            : `<a class="tier-btn" href="${seedlingUrl}">Subscribe</a>`}
         </div>
         <div class="tier featured">
           <div class="tier-badge">Most Popular</div>
           <div class="tier-name">Grove</div>
           <div class="tier-price">$7<span>/mo</span></div>
-          <div class="tier-desc">~1.5 carbon credits + biodiversity credits per month. The sweet spot.</div>
-          <a class="tier-btn" href="${groveUrl}">Subscribe</a>
+          <div class="tier-desc">~1.5 carbon credits + biodiversity credits per month. The sweet spot.${referralValid ? "<br><strong>First month free!</strong>" : ""}</div>
+          ${hasPriceIds
+            ? `<button class="tier-btn" onclick="subscribe('grove')">Subscribe</button>`
+            : `<a class="tier-btn" href="${groveUrl}">Subscribe</a>`}
         </div>
         <div class="tier">
           <div class="tier-name">Forest</div>
           <div class="tier-price">$15<span>/mo</span></div>
-          <div class="tier-desc">~3 carbon credits + biodiversity credits per month. For teams and power users.</div>
-          <a class="tier-btn" href="${forestUrl}">Subscribe</a>
+          <div class="tier-desc">~3 carbon credits + biodiversity credits per month. For teams and power users.${referralValid ? "<br><strong>First month free!</strong>" : ""}</div>
+          ${hasPriceIds
+            ? `<button class="tier-btn" onclick="subscribe('forest')">Subscribe</button>`
+            : `<a class="tier-btn" href="${forestUrl}">Subscribe</a>`}
         </div>
       </div>
     </div>
@@ -368,8 +397,108 @@ export function createRoutes(stripe: Stripe, db: Database.Database, baseUrl: str
     </div>
   </section>
 
+  ${hasPriceIds ? `<script>
+    function subscribe(tier) {
+      var body = { tier: tier };
+      ${refCode ? `body.referral_code = ${JSON.stringify(refCode)};` : ""}
+      fetch('/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.url) window.location.href = data.url;
+        else alert('Error: ' + (data.error || 'Unknown error'));
+      })
+      .catch(function(e) { alert('Error: ' + e.message); });
+    }
+  </script>` : ""}
+
 </body>
 </html>`);
+  });
+
+  /**
+   * POST /subscribe
+   * Body: { tier: "seedling"|"grove"|"forest", email?: string, referral_code?: string }
+   * Returns: { url: "https://checkout.stripe.com/..." }
+   *
+   * Creates a Stripe Checkout Session in subscription mode.
+   * If a valid referral_code is provided, the subscription gets a 30-day free trial.
+   */
+  router.post("/subscribe", async (req: Request, res: Response) => {
+    try {
+      const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+      const { tier, email, referral_code } = body ?? {};
+
+      if (!tier || !["seedling", "grove", "forest"].includes(tier)) {
+        res.status(400).json({ error: 'tier must be "seedling", "grove", or "forest"' });
+        return;
+      }
+
+      // Resolve price ID for the tier
+      const priceIdMap: Record<string, string | undefined> = {
+        seedling: config?.stripePriceIdSeedling,
+        grove: config?.stripePriceIdGrove,
+        forest: config?.stripePriceIdForest,
+      };
+
+      const priceId = priceIdMap[tier];
+      if (!priceId) {
+        // Fall back to Payment Links
+        const linkMap: Record<string, string> = {
+          seedling: config?.stripePaymentLinkSeedling ?? "#",
+          grove: config?.stripePaymentLinkGrove ?? "#",
+          forest: config?.stripePaymentLinkForest ?? "#",
+        };
+        res.json({ url: linkMap[tier], fallback: true });
+        return;
+      }
+
+      // Check referral code
+      let referrerUser: ReturnType<typeof getUserByReferralCode> | undefined;
+      if (referral_code) {
+        referrerUser = getUserByReferralCode(db, referral_code);
+      }
+
+      const sessionParams: Stripe.Checkout.SessionCreateParams = {
+        mode: "subscription",
+        line_items: [{ price: priceId, quantity: 1 }],
+        success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}&type=subscription`,
+        cancel_url: `${baseUrl}/cancel`,
+        ...(email ? { customer_email: email } : {}),
+        subscription_data: {
+          metadata: {
+            tier,
+            source: "regen-compute",
+            ...(referrerUser
+              ? {
+                  referrer_id: String(referrerUser.id),
+                  referral_code: referral_code,
+                }
+              : {}),
+          },
+          ...(referrerUser ? { trial_period_days: 30 } : {}),
+        },
+      };
+
+      const session = await stripe.checkout.sessions.create(sessionParams);
+      res.json({ url: session.url });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("Subscribe error:", msg);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  /**
+   * GET /r/:code
+   * Short referral redirect → /?ref=CODE
+   */
+  router.get("/r/:code", (req: Request, res: Response) => {
+    const code = Array.isArray(req.params.code) ? req.params.code[0] : req.params.code;
+    res.redirect(302, `${baseUrl}/?ref=${encodeURIComponent(code)}`);
   });
 
   /**
@@ -493,6 +622,7 @@ export function createRoutes(stripe: Stripe, db: Database.Database, baseUrl: str
   router.get("/success", async (req: Request, res: Response) => {
     try {
       const sessionId = req.query.session_id as string;
+      const isSubscription = req.query.type === "subscription";
       if (!sessionId) {
         res.status(400).send("Missing session_id");
         return;
@@ -512,10 +642,141 @@ export function createRoutes(stripe: Stripe, db: Database.Database, baseUrl: str
         return;
       }
 
-      const amountDollars = (session.amount_total ?? 0) / 100;
-
       res.setHeader("Content-Type", "text/html");
-      res.send(`<!DOCTYPE html>
+
+      if (isSubscription) {
+        // Subscription success page
+        const referralLink = `${baseUrl}/r/${user.referral_code}`;
+        const shareText = encodeURIComponent(
+          "I just subscribed to Regenerative Compute — funding verified ecological regeneration from my AI sessions. Use my link for a free first month:"
+        );
+        const shareUrl = encodeURIComponent(referralLink);
+        const twitterUrl = `https://twitter.com/intent/tweet?text=${shareText}&url=${shareUrl}`;
+        const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${shareUrl}`;
+
+        res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Regenerative Compute — Thank You!</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.7; }
+    .hero-box { background: linear-gradient(135deg, #2d6a4f, #40916c, #52b788); color: #fff; border-radius: 16px; padding: 40px 32px; text-align: center; margin: 24px 0; }
+    .hero-box h1 { margin: 0 0 12px; font-size: 28px; font-weight: 700; }
+    .hero-box p { margin: 0; opacity: 0.92; font-size: 17px; }
+    .impact-box { background: #f0f7f4; border-radius: 12px; padding: 28px; margin: 28px 0; }
+    .impact-box h2 { color: #2d6a4f; margin: 0 0 12px; font-size: 20px; }
+    .impact-box p { margin: 0 0 10px; color: #333; }
+    .impact-box ul { margin: 12px 0 0; padding-left: 20px; color: #444; }
+    .impact-box ul li { margin-bottom: 6px; }
+    .learn-link { display: inline-block; margin-top: 16px; color: #2d6a4f; font-weight: 600; text-decoration: none; border-bottom: 2px solid #b7e4c7; padding-bottom: 1px; }
+    .learn-link:hover { border-color: #2d6a4f; }
+    .setup-section { background: #fafafa; border: 1px solid #e5e5e5; border-radius: 12px; padding: 24px 28px; margin: 28px 0; }
+    .setup-section h2 { color: #2d6a4f; margin: 0 0 8px; font-size: 18px; }
+    .setup-section .subtitle { color: #666; font-size: 14px; margin: 0 0 16px; }
+    .setup-section p { margin: 8px 0; }
+    .api-key { font-family: monospace; font-size: 13px; background: #fff; border: 1px solid #d4d4d4; padding: 8px 12px; border-radius: 6px; word-break: break-all; display: block; margin: 8px 0; user-select: all; }
+    code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+    pre { background: #1a1a1a; color: #e0e0e0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; margin: 8px 0 16px; }
+    .toggle-btn { background: none; border: none; color: #2d6a4f; font-size: 14px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 3px; }
+    .toggle-btn:hover { color: #1b4332; }
+    .setup-details { display: none; margin-top: 16px; }
+    .referral-box { background: #faf5ff; border: 2px solid #c4b5fd; border-radius: 12px; padding: 28px; margin: 28px 0; text-align: center; }
+    .referral-box h2 { color: #7c3aed; margin: 0 0 8px; font-size: 20px; }
+    .referral-box p { color: #555; margin: 4px 0 16px; }
+    .ref-link { font-family: monospace; font-size: 14px; background: #fff; border: 1px solid #d8b4fe; padding: 10px 14px; border-radius: 8px; display: block; margin: 12px 0; word-break: break-all; cursor: pointer; user-select: all; }
+    .share-btns { display: flex; gap: 10px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+    .share-btn { display: inline-block; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 8px; text-decoration: none; color: #fff; transition: opacity 0.15s; }
+    .share-btn:hover { opacity: 0.88; }
+    .share-x { background: #1a1a1a; }
+    .share-linkedin { background: #0a66c2; }
+    .share-copy { background: #6b7280; cursor: pointer; border: none; color: #fff; font-size: 14px; font-weight: 600; border-radius: 8px; padding: 10px 20px; }
+    .footer-links { text-align: center; color: #999; font-size: 13px; margin: 32px 0 16px; }
+    .footer-links a { color: #2d6a4f; text-decoration: none; }
+    .footer-links a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="hero-box">
+    <h1>Thank you for being part of this.</h1>
+    <p>While you use AI for your life and your work, you're now also rewarding the people and projects creating real ecological impact around the world.</p>
+  </div>
+
+  <div class="impact-box">
+    <h2>What your subscription does</h2>
+    <p>Every month, we pool contributions from subscribers like you and retire verified ecological credits on <strong>Regen Network</strong> — a public blockchain purpose-built for climate and biodiversity action.</p>
+    <ul>
+      <li><strong>Real impact</strong> — your money goes directly to projects restoring forests, protecting biodiversity, and regenerating land</li>
+      <li><strong>Permanently recorded</strong> — every retirement is on-chain, immutable, and verifiable by anyone</li>
+      <li><strong>You'll get a monthly email</strong> with a certificate showing exactly what was retired on your behalf</li>
+    </ul>
+    <p>This isn't a carbon offset. It's a direct contribution to ecological regeneration.</p>
+    <a class="learn-link" href="https://app.regen.network" target="_blank" rel="noopener">Learn more about Regen Network and ecocredits &rarr;</a>
+  </div>
+
+  <div class="setup-section">
+    <h2>Connect to your AI assistant (optional)</h2>
+    <p class="subtitle">If you use Claude Code, Cursor, or another AI tool that supports MCP, you can connect your subscription so your assistant can check your impact and retire credits on your behalf. <em>Skip this if you'd rather just let your monthly subscription do the work.</em></p>
+    <button class="toggle-btn" onclick="toggleSetup()">Show setup instructions</button>
+    <div class="setup-details" id="setupDetails">
+      <p><strong>Your API Key</strong></p>
+      <span class="api-key">${user.api_key}</span>
+      <p style="font-size: 13px; color: #666; margin-bottom: 16px;">This key links your AI assistant to your subscription. Copy it somewhere safe.</p>
+      <p><strong>Step 1.</strong> Install the MCP server:</p>
+      <pre>claude mcp add -s user regen-compute -- npx regen-compute</pre>
+      <p><strong>Step 2.</strong> Set your API key (add to your shell profile or <code>.env</code>):</p>
+      <pre>export REGEN_API_KEY=${user.api_key}
+export REGEN_BALANCE_URL=${baseUrl}</pre>
+      <p><strong>That's it.</strong> Your assistant can now show your subscription status and ecological impact. Try asking: <em>"What's my regenerative compute impact?"</em></p>
+    </div>
+  </div>
+
+  <div class="referral-box">
+    <h2>Give a Friend Their First Month Free</h2>
+    <p>Share your link and your friend gets 30 days free. You earn bonus credit retirements.</p>
+    <span class="ref-link" onclick="copyLink()" id="refLink">${referralLink}</span>
+    <div class="share-btns">
+      <a class="share-btn share-x" href="${twitterUrl}" target="_blank" rel="noopener">Post on X</a>
+      <a class="share-btn share-linkedin" href="${linkedinUrl}" target="_blank" rel="noopener">Share on LinkedIn</a>
+      <button class="share-copy" onclick="copyLink()">Copy Link</button>
+    </div>
+  </div>
+
+  <div class="footer-links">
+    <a href="${baseUrl}/manage?email=${encodeURIComponent(email)}">Manage subscription</a>
+    &middot;
+    <a href="${baseUrl}/dashboard">Dashboard</a>
+    &middot;
+    <a href="https://app.regen.network" target="_blank" rel="noopener">Regen Marketplace</a>
+  </div>
+
+  <script>
+    function copyLink() {
+      var el = document.getElementById('refLink');
+      navigator.clipboard.writeText(el.textContent).then(function() {
+        el.textContent = 'Copied!';
+        setTimeout(function() { el.textContent = '${referralLink}'; }, 2000);
+      });
+    }
+    function toggleSetup() {
+      var d = document.getElementById('setupDetails');
+      var btn = d.previousElementSibling;
+      if (d.style.display === 'block') {
+        d.style.display = 'none';
+        btn.textContent = 'Show setup instructions';
+      } else {
+        d.style.display = 'block';
+        btn.textContent = 'Hide setup instructions';
+      }
+    }
+  </script>
+</body>
+</html>`);
+      } else {
+        // One-time payment success page (existing)
+        const amountDollars = (session.amount_total ?? 0) / 100;
+
+        res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -562,6 +823,7 @@ export REGEN_BALANCE_URL=${baseUrl}</pre>
   <p><a href="${baseUrl}/checkout-page">Top up again</a></p>
 </body>
 </html>`);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Success page error:", msg);
@@ -846,6 +1108,17 @@ async function handleSubscriptionCreated(db: Database.Database, sub: Stripe.Subs
 
     createSubscriber(db, user.id, stripeSubId, plan, amountCents, periodStart, periodEnd);
     console.log(`Subscription created: ${stripeSubId} plan=${plan} amount=$${(amountCents / 100).toFixed(2)}`);
+
+    // Handle referral tracking from subscription metadata
+    const referrerId = sub.metadata?.referrer_id;
+    if (referrerId) {
+      const referrerUserId = parseInt(referrerId, 10);
+      if (!isNaN(referrerUserId) && referrerUserId !== user.id) {
+        setUserReferredBy(db, user.id, referrerUserId);
+        createReferralReward(db, referrerUserId, user.id, "extra_credit_retirement");
+        console.log(`Referral tracked: referrer=${referrerUserId} referred=${user.id}`);
+      }
+    }
   } catch (err) {
     console.error("Error handling subscription.created:", err instanceof Error ? err.message : err);
   }

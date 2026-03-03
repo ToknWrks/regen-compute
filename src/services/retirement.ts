@@ -155,7 +155,10 @@ export async function executeRetirement(params: RetirementParams): Promise<Retir
 
     const selection = await selectBestOrders(
       creditClass ? (creditClass.startsWith("C") ? "carbon" : "biodiversity") : undefined,
-      retireQuantity
+      retireQuantity,
+      undefined, // preferredDenom
+      undefined, // creditTypeAbbrevs
+      creditClass // creditClassId — exact match when specified
     );
 
     if (selection.orders.length === 0) {
@@ -200,6 +203,8 @@ export async function executeRetirement(params: RetirementParams): Promise<Retir
       );
     }
 
+    const needsManualRetire = selection.orders.some((o) => o.disableAutoRetire);
+
     const buyOrders = selection.orders.map((order) => ({
       sellOrderId: BigInt(order.sellOrderId),
       quantity: order.quantity,
@@ -207,22 +212,43 @@ export async function executeRetirement(params: RetirementParams): Promise<Retir
         denom: order.askDenom,
         amount: order.askAmount,
       },
-      disableAutoRetire: false,
-      retirementJurisdiction: retireJurisdiction,
-      retirementReason: retireReason,
+      disableAutoRetire: order.disableAutoRetire,
+      retirementJurisdiction: order.disableAutoRetire ? "" : retireJurisdiction,
+      retirementReason: order.disableAutoRetire ? "" : retireReason,
     }));
 
-    const msg = {
-      typeUrl: "/regen.ecocredit.marketplace.v1.MsgBuyDirect",
-      value: {
-        buyer: address,
-        orders: buyOrders,
+    const msgs: { typeUrl: string; value: unknown }[] = [
+      {
+        typeUrl: "/regen.ecocredit.marketplace.v1.MsgBuyDirect",
+        value: {
+          buyer: address,
+          orders: buyOrders,
+        },
       },
-    };
+    ];
+
+    // For orders where seller disabled auto-retire, add a MsgRetire after the buy
+    if (needsManualRetire) {
+      const retireCredits = selection.orders
+        .filter((o) => o.disableAutoRetire)
+        .map((o) => ({
+          batchDenom: o.batchDenom,
+          amount: o.quantity,
+        }));
+      msgs.push({
+        typeUrl: "/regen.ecocredit.v1.MsgRetire",
+        value: {
+          owner: address,
+          credits: retireCredits,
+          jurisdiction: retireJurisdiction,
+          reason: retireReason,
+        },
+      });
+    }
 
     let txResult;
     try {
-      txResult = await signAndBroadcast([msg]);
+      txResult = await signAndBroadcast(msgs);
     } catch (err) {
       try { await provider.refundPayment(auth.id); } catch { /* ignore */ }
       const errMsg = err instanceof Error ? err.message : String(err);

@@ -25,13 +25,15 @@ export interface SelectedOrder {
   askAmount: string;
   askDenom: string;
   costMicro: bigint;
+  disableAutoRetire: boolean;
 }
 
 export async function selectBestOrders(
   creditType: string | undefined,
   quantity: number,
   preferredDenom?: string,
-  creditTypeAbbrevs?: string[]
+  creditTypeAbbrevs?: string[],
+  creditClassId?: string
 ): Promise<OrderSelection> {
   const [sellOrders, classes, allowedDenoms] = await Promise.all([
     listSellOrders(),
@@ -45,27 +47,18 @@ export async function selectBestOrders(
     classTypeMap.set(cls.id, cls.credit_type_abbrev);
   }
 
-  // Determine preferred payment denom
-  const denomInfo = pickDenom(allowedDenoms, preferredDenom);
+  // Filter eligible sell orders by credit type/class and expiration (allow disable_auto_retire orders — handled in retirement.ts)
+  const typeFiltered = sellOrders.filter((order) => {
+    const classId = order.batch_denom.split("-").slice(0, 1).join("");
 
-  // Filter eligible sell orders:
-  // - auto-retire enabled (disable_auto_retire === false)
-  // - matching credit type (if specified)
-  // - matching payment denom
-  // - not expired
-  const eligible = sellOrders.filter((order) => {
-    if (order.disable_auto_retire) return false;
-    if (order.ask_denom !== denomInfo.bankDenom) return false;
-
-    if (creditType || creditTypeAbbrevs) {
-      // Extract class ID from batch denom (e.g., "C01-001-..." → "C01")
-      const classId = order.batch_denom.split("-").slice(0, 1).join("");
-      // Match on credit type abbreviation
+    // If a specific credit class ID is requested, match exactly
+    if (creditClassId) {
+      if (classId !== creditClassId) return false;
+    } else if (creditType || creditTypeAbbrevs) {
       const abbrev = classTypeMap.get(classId);
       if (!abbrev) return false;
 
       if (creditTypeAbbrevs) {
-        // Explicit abbreviation filter takes precedence
         if (!creditTypeAbbrevs.includes(abbrev)) return false;
       } else if (creditType) {
         if (creditType === "carbon" && abbrev !== "C") return false;
@@ -80,6 +73,35 @@ export async function selectBestOrders(
 
     return true;
   });
+
+  // Determine payment denom: try preferred first, fall back to most common among eligible orders
+  let denomInfo = pickDenom(allowedDenoms, preferredDenom);
+  let eligible = typeFiltered.filter((order) => order.ask_denom === denomInfo.bankDenom);
+
+  if (eligible.length === 0 && typeFiltered.length > 0) {
+    // No orders match the preferred denom — pick the most common denom among eligible orders
+    const denomCounts = new Map<string, number>();
+    for (const order of typeFiltered) {
+      denomCounts.set(order.ask_denom, (denomCounts.get(order.ask_denom) || 0) + 1);
+    }
+    let bestDenom = "";
+    let bestCount = 0;
+    for (const [denom, count] of denomCounts) {
+      if (count > bestCount) {
+        bestDenom = denom;
+        bestCount = count;
+      }
+    }
+    const fallbackDenom = allowedDenoms.find((d) => d.bank_denom === bestDenom);
+    if (fallbackDenom) {
+      denomInfo = {
+        bankDenom: fallbackDenom.bank_denom,
+        displayDenom: fallbackDenom.display_denom,
+        exponent: fallbackDenom.exponent,
+      };
+      eligible = typeFiltered.filter((order) => order.ask_denom === denomInfo.bankDenom);
+    }
+  }
 
   // Sort by ask_amount ascending (cheapest first)
   eligible.sort((a, b) => {
@@ -115,6 +137,7 @@ export async function selectBestOrders(
       askAmount: order.ask_amount,
       askDenom: order.ask_denom,
       costMicro,
+      disableAutoRetire: order.disable_auto_retire,
     });
 
     totalCostMicro += costMicro;

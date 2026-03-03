@@ -38,6 +38,7 @@ interface EmailData {
   certificateUrl: string | null;
   txHashes: { label: string; hash: string; url: string }[];
   manageUrl: string;
+  referralLink: string | null;
 }
 
 /** Pick the best certificate URL from the pool run result */
@@ -283,6 +284,19 @@ function renderEmailHtml(data: EmailData): string {
                     </table>
                     ` : ""}
 
+                    ${data.referralLink ? `
+                    <!-- Referral section -->
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #faf5ff; border-radius: 8px; border: 1px solid #d8b4fe; margin-top: 24px;">
+                      <tr>
+                        <td style="padding: 20px; text-align: center;">
+                          <p style="margin: 0 0 8px; font-family: Arial, sans-serif; font-size: 15px; font-weight: 700; color: #7c3aed;">Know someone who uses AI?</p>
+                          <p style="margin: 0 0 16px; font-family: Arial, sans-serif; font-size: 14px; color: #555; line-height: 1.5;">Give them their first month free and earn bonus credit retirements.</p>
+                          <a href="${escapeHtml(data.referralLink)}" style="display: inline-block; padding: 12px 28px; background-color: #7c3aed; color: #ffffff; font-family: Arial, sans-serif; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 8px;">Share Your Referral Link</a>
+                        </td>
+                      </tr>
+                    </table>
+                    ` : ""}
+
                   </td>
                 </tr>
 
@@ -399,9 +413,12 @@ export async function sendMonthlyEmails(
   const certificateUrl = pickCertificateUrl(result, serverUrl);
   const txHashes = collectTxHashes(result);
 
-  // Per-subscriber manage URL — routes through our /manage endpoint which
-  // creates a Stripe Billing Portal session dynamically.
-  // Each subscriber gets their own URL with their email for lookup.
+  // Look up referral codes for each subscriber's user
+  const userReferralCodes = new Map<number, string | null>();
+  for (const sub of subsWithEmails) {
+    const userRow = db.prepare("SELECT referral_code FROM users WHERE email = ?").get(sub.user_email) as { referral_code: string | null } | undefined;
+    userReferralCodes.set(sub.subscriber_id, userRow?.referral_code ?? null);
+  }
 
   const runDate = new Date().toLocaleDateString("en-US", {
     year: "numeric",
@@ -418,6 +435,9 @@ export async function sendMonthlyEmails(
     const cumulative = getCumulativeAttribution(db, sub.subscriber_id);
     const manageUrl = `${serverUrl}/manage?email=${encodeURIComponent(sub.user_email)}`;
 
+    const refCode = userReferralCodes.get(sub.subscriber_id);
+    const referralLink = refCode ? `${serverUrl}/r/${refCode}` : null;
+
     const emailData: EmailData = {
       email: sub.user_email,
       plan: sub.plan,
@@ -431,6 +451,7 @@ export async function sendMonthlyEmails(
       certificateUrl,
       txHashes,
       manageUrl,
+      referralLink,
     };
 
     const html = renderEmailHtml(emailData);

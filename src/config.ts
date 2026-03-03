@@ -34,10 +34,15 @@ export interface Config {
   balanceApiKey: string | undefined;
   balanceUrl: string | undefined;
 
-  // Stripe Payment Links (subscription tiers)
+  // Stripe Payment Links (subscription tiers — fallback for no-JS)
   stripePaymentLinkSeedling: string;
   stripePaymentLinkGrove: string;
   stripePaymentLinkForest: string;
+
+  // Stripe Price IDs (for programmatic Checkout Sessions)
+  stripePriceIdSeedling: string | undefined;
+  stripePriceIdGrove: string | undefined;
+  stripePriceIdForest: string | undefined;
 
   // Email (Postmark)
   postmarkServerToken: string | undefined;
@@ -98,6 +103,10 @@ export function loadConfig(): Config {
     stripePaymentLinkSeedling: process.env.STRIPE_PAYMENT_LINK_SEEDLING || "#",
     stripePaymentLinkGrove: process.env.STRIPE_PAYMENT_LINK_GROVE || "#",
     stripePaymentLinkForest: process.env.STRIPE_PAYMENT_LINK_FOREST || "#",
+
+    stripePriceIdSeedling: process.env.STRIPE_PRICE_ID_SEEDLING || undefined,
+    stripePriceIdGrove: process.env.STRIPE_PRICE_ID_GROVE || undefined,
+    stripePriceIdForest: process.env.STRIPE_PRICE_ID_FOREST || undefined,
 
     stripePortalReturnUrl: process.env.STRIPE_PORTAL_RETURN_URL || undefined,
 

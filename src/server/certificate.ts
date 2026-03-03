@@ -495,7 +495,28 @@ function renderCertificatePage(
           </div>
           <textarea class="embed-code" readonly onclick="this.select()">${embedSnippet}</textarea>
         </div>
+
+        <div class="share-section" style="margin-top: 28px; text-align: center;">
+          <div style="font-size: 14px; font-weight: 700; color: #374151; margin-bottom: 12px;">Share your impact</div>
+          <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+            <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(`I just retired ${amount} ${theme.name.toLowerCase()} credits on Regen Network — funding verified ecological regeneration.`)}&url=${encodeURIComponent(certUrl)}"
+               target="_blank" rel="noopener"
+               style="display: inline-block; padding: 10px 20px; background: #1a1a1a; color: #fff; font-size: 13px; font-weight: 600; border-radius: 6px; text-decoration: none;">Post on X</a>
+            <a href="https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(certUrl)}"
+               target="_blank" rel="noopener"
+               style="display: inline-block; padding: 10px 20px; background: #0a66c2; color: #fff; font-size: 13px; font-weight: 600; border-radius: 6px; text-decoration: none;">Share on LinkedIn</a>
+            <button onclick="navigator.clipboard.writeText('${escapeHtml(certUrl)}').then(function(){this.textContent='Copied!'}.bind(this))"
+                    style="padding: 10px 20px; background: #6b7280; color: #fff; font-size: 13px; font-weight: 600; border-radius: 6px; border: none; cursor: pointer;">Copy Link</button>
+          </div>
+        </div>
       </div>
+    </div>
+
+    <div style="text-align: center; margin: 28px auto; max-width: 480px; background: #f0f7f4; border: 2px solid #2d6a4f; border-radius: 12px; padding: 24px;">
+      <div style="font-size: 16px; font-weight: 700; color: #2d6a4f; margin-bottom: 8px;">Fund regeneration for your AI sessions</div>
+      <div style="font-size: 14px; color: #555; margin-bottom: 16px;">Monthly subscriptions from $2.50/mo retire verified ecological credits on Regen Network.</div>
+      <a href="${escapeHtml(baseUrl)}/#pricing"
+         style="display: inline-block; padding: 12px 28px; background: #2d6a4f; color: #fff; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none;">Subscribe</a>
     </div>
 
     <div class="footer">

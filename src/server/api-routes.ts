@@ -16,7 +16,14 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import type Database from "better-sqlite3";
 import type { Config } from "../config.js";
-import { getUserByApiKey, recordApiUsage, type User } from "./db.js";
+import {
+  getUserByApiKey,
+  recordApiUsage,
+  getSubscriberByUserId,
+  getCumulativeAttribution,
+  getReferralCount,
+  type User,
+} from "./db.js";
 import { estimateFootprint } from "../services/estimator.js";
 import { getRetirementById, getRetirementStats, getOrderStats } from "../services/indexer.js";
 import { listCreditClasses, listSellOrders, listProjects } from "../services/ledger.js";
@@ -403,6 +410,54 @@ export function createApiRoutes(
       const msg = err instanceof Error ? err.message : String(err);
       apiError(res, 503, "SERVICE_UNAVAILABLE", `Failed to fetch impact data: ${msg}`);
     }
+  });
+
+  // --- GET /api/v1/subscription ---
+  router.get("/api/v1/subscription", (req: Request, res: Response) => {
+    const user = getUser(req);
+    if (!user) return;
+
+    const subscriber = getSubscriberByUserId(db, user.id);
+    const referralCount = getReferralCount(db, user.id);
+    const referralLink = user.referral_code
+      ? `${baseUrl}/r/${user.referral_code}`
+      : null;
+    const subscribeUrl = `${baseUrl}/#pricing`;
+
+    if (!subscriber || subscriber.status !== "active") {
+      res.json({
+        subscribed: false,
+        subscribe_url: subscribeUrl,
+        referral_link: referralLink,
+        referral_count: referralCount,
+        plans: [
+          { name: "Seedling", price: "$2.50/mo", description: "~0.5 carbon credits/mo" },
+          { name: "Grove", price: "$7/mo", description: "~1.5 carbon + biodiversity credits/mo" },
+          { name: "Forest", price: "$15/mo", description: "~3 carbon + biodiversity credits/mo" },
+        ],
+      });
+      return;
+    }
+
+    const cumulative = getCumulativeAttribution(db, subscriber.id);
+
+    res.json({
+      subscribed: true,
+      plan: subscriber.plan,
+      status: subscriber.status,
+      amount_cents: subscriber.amount_cents,
+      amount_dollars: (subscriber.amount_cents / 100).toFixed(2),
+      next_renewal: subscriber.current_period_end,
+      cumulative_carbon_credits: cumulative.total_carbon,
+      cumulative_biodiversity_credits: cumulative.total_biodiversity,
+      cumulative_uss_credits: cumulative.total_uss,
+      cumulative_contribution_dollars: (cumulative.total_contribution_cents / 100).toFixed(2),
+      months_active: cumulative.months_active,
+      referral_link: referralLink,
+      referral_count: referralCount,
+      subscribe_url: subscribeUrl,
+      manage_url: `${baseUrl}/manage?email=${encodeURIComponent(user.email ?? "")}`,
+    });
   });
 
   return router;

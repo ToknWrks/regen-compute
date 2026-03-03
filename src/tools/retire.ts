@@ -78,6 +78,7 @@ function marketplaceFallback(
 ): { content: Array<{ type: "text"; text: string }> } {
   const config = loadConfig();
   const url = `${config.marketplaceUrl}/projects/1?buying_options_filters=credit_card`;
+  const subscribeUrl = config.balanceUrl ? `${config.balanceUrl}/#pricing` : null;
   const lines: string[] = [
     `## Retire Ecocredits on Regen Network`,
     ``,
@@ -89,11 +90,33 @@ function marketplaceFallback(
 
   if (beneficiaryName) lines.push(`**Beneficiary**: ${beneficiaryName}`);
 
+  // Primary option: subscribe for ongoing coverage
+  if (subscribeUrl) {
+    lines.push(
+      ``,
+      `### Subscribe for Ongoing Coverage`,
+      ``,
+      `The easiest way to fund ecological regeneration from your AI sessions:`,
+      ``,
+      `**[Subscribe to Regenerative Compute](${subscribeUrl})**`,
+      ``,
+      `Plans from $2.50/mo — credits retired on-chain monthly with verifiable proof. No crypto wallet needed.`,
+      ``,
+      `Use \`check_subscription_status\` to see your current plan and impact.`,
+      ``,
+      `### One-Time Purchase`,
+      ``
+    );
+  } else {
+    lines.push(
+      ``,
+      `### Purchase & Retire`,
+      ``
+    );
+  }
+
   lines.push(
-    ``,
-    `### Purchase & Retire`,
-    ``,
-    `Visit the Regen Marketplace to complete your credit retirement:`,
+    `Visit the Regen Marketplace to retire credits directly:`,
     ``,
     `**[app.regen.network](${url})**`,
     ``,
