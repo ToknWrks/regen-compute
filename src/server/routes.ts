@@ -248,11 +248,11 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
   <!-- Nerd Out: Personalized Recommendation -->
   <section class="hiw-section" style="background:var(--regen-gray-50);">
     <div class="regen-container" style="max-width:640px;text-align:center;">
-      <h2 class="regen-section-title">Want to personalize?</h2>
-      <p style="color:var(--regen-gray-500);margin-bottom:20px;">If you have regen-compute installed, your AI assistant can calculate your exact footprint and recommend the right amount for you.</p>
+      <h2 class="regen-section-title">Not sure which tier?</h2>
+      <p style="color:var(--regen-gray-500);margin-bottom:20px;">If you have regen-compute installed, just ask your AI assistant to help you figure it out.</p>
       <div style="background:#fff;border:1px solid var(--regen-gray-200);border-radius:10px;padding:16px;position:relative;text-align:left;">
-        <code style="font-size:13px;color:var(--regen-navy);word-break:break-all;">Use the personalize_subscription prompt from regen-compute to help me figure out the right amount.</code>
-        <button onclick="navigator.clipboard.writeText('Use the personalize_subscription prompt from regen-compute to help me figure out the right amount.').then(function(){this.textContent='Copied!';var b=this;setTimeout(function(){b.textContent='Copy'},1500)}.bind(this))" style="position:absolute;top:12px;right:12px;background:var(--regen-green);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;">Copy</button>
+        <code style="font-size:13px;color:var(--regen-navy);word-break:break-all;">I want to figure out the right monthly amount for my Regenerative Compute subscription based on how much I actually use AI. What do you need to know from me to calculate it?</code>
+        <button onclick="navigator.clipboard.writeText('I want to figure out the right monthly amount for my Regenerative Compute subscription based on how much I actually use AI. What do you need to know from me to calculate it?').then(function(){this.textContent='Copied!';var b=this;setTimeout(function(){b.textContent='Copy'},1500)}.bind(this))" style="position:absolute;top:12px;right:12px;background:var(--regen-green);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;">Copy</button>
       </div>
       <p style="font-size:13px;color:var(--regen-gray-400);margin-top:12px;">Paste this into Claude Code, Cursor, or any MCP-enabled AI assistant.</p>
     </div>
