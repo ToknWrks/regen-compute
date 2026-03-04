@@ -245,8 +245,22 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
     </div>
   </section>
 
-  <!-- Nerd Out: Personalized Recommendation -->
+  <!-- Custom Amount -->
   <section class="hiw-section" style="background:var(--regen-gray-50);">
+    <div class="regen-container" style="max-width:480px;text-align:center;">
+      <h2 class="regen-section-title">Or choose your own amount</h2>
+      <p style="color:var(--regen-gray-500);margin-bottom:20px;">Fund regeneration at any level that feels right.</p>
+      <div style="display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:15px;color:var(--regen-navy);font-weight:600;">$</label>
+        <input id="custom-amount" type="number" min="1" step="0.50" value="7" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:16px;text-align:center;">
+        <button onclick="fundCustom()" class="regen-btn regen-btn--solid" style="white-space:nowrap;">Fund Regeneration</button>
+      </div>
+      <p id="custom-error" style="color:#c33;font-size:13px;margin-top:8px;display:none;"></p>
+    </div>
+  </section>
+
+  <!-- Nerd Out: Personalized Recommendation -->
+  <section class="hiw-section">
     <div class="regen-container" style="max-width:640px;text-align:center;">
       <h2 class="regen-section-title">Not sure which tier?</h2>
       <p style="color:var(--regen-gray-500);margin-bottom:20px;">If you have regen-compute installed, just ask your AI assistant to help you figure it out.</p>
@@ -258,17 +272,12 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
     </div>
   </section>
 
-  <!-- Custom Amount -->
-  <section class="hiw-section">
-    <div class="regen-container" style="max-width:480px;text-align:center;">
-      <h2 class="regen-section-title">Or choose your own amount</h2>
-      <p style="color:var(--regen-gray-500);margin-bottom:20px;">Fund regeneration at any level that feels right.</p>
-      <div style="display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap;">
-        <label style="font-size:15px;color:var(--regen-navy);font-weight:600;">$</label>
-        <input id="custom-amount" type="number" min="1" step="0.50" value="7" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:16px;text-align:center;">
-        <button onclick="fundCustom()" class="regen-btn regen-btn--solid" style="white-space:nowrap;">Fund Regeneration</button>
-      </div>
-      <p id="custom-error" style="color:#c33;font-size:13px;margin-top:8px;display:none;"></p>
+  <!-- One-time / Choose Your Own Credits -->
+  <section class="hiw-section" style="background:var(--regen-gray-50);">
+    <div class="regen-container" style="max-width:640px;text-align:center;">
+      <h2 class="regen-section-title">Prefer a one-time purchase?</h2>
+      <p style="color:var(--regen-gray-500);margin-bottom:24px;">Browse verified ecological credits on the Regen Marketplace and choose exactly which projects to support — pay with a credit card.</p>
+      <a class="regen-btn regen-btn--primary" href="https://app.regen.network/projects/1?buying_options_filters=credit_card" target="_blank" rel="noopener">Let Me Choose</a>
     </div>
   </section>
 
