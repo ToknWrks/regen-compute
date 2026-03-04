@@ -715,13 +715,10 @@ export function createMagicLinkToken(db: Database.Database, email: string, ttlMi
 }
 
 export function verifyMagicLinkToken(db: Database.Database, token: string): string | null {
+  // Atomic update + fetch in one query — prevents TOCTOU race
   const row = db.prepare(
-    "SELECT * FROM magic_links WHERE token = ? AND used = 0"
-  ).get(token) as { email: string; expires_at: string } | undefined;
+    "UPDATE magic_links SET used = 1 WHERE token = ? AND used = 0 AND expires_at > datetime('now') RETURNING email"
+  ).get(token) as { email: string } | undefined;
 
-  if (!row) return null;
-  if (new Date(row.expires_at) < new Date()) return null;
-
-  db.prepare("UPDATE magic_links SET used = 1 WHERE token = ?").run(token);
-  return row.email;
+  return row?.email ?? null;
 }
