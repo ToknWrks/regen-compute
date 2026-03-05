@@ -153,6 +153,7 @@ export function createResearchRoutes(baseUrl: string): Router {
 
   ${brandHeader({
     nav: [
+      { label: "AI Plugin", href: "/ai-plugin" },
       { label: "Research", href: "/research" },
       { label: "Dashboard", href: "/dashboard/login" },
     ],

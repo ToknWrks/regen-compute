@@ -173,7 +173,7 @@ function renderLoginPage(error?: string, success?: string, info?: string): strin
 </head>
 <body>
   ${betaBannerHTML()}
-  ${brandHeader()}
+  ${brandHeader({ nav: [{ label: "AI Plugin", href: "/ai-plugin" }, { label: "Research", href: "/research" }, { label: "Home", href: "/" }] })}
   <div class="login-wrapper">
     <div class="login-card">
       <h1>Dashboard Login</h1>

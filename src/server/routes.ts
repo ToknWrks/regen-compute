@@ -643,7 +643,7 @@ ${betaBannerJS()}
 </head>
 <body>
   ${betaBannerHTML()}
-  ${brandHeader({ nav: [{ label: "Dashboard", href: "/dashboard" }] })}
+  ${brandHeader({ nav: [{ label: "AI Plugin", href: "/ai-plugin" }, { label: "Research", href: "/research" }, { label: "Dashboard", href: "/dashboard" }] })}
 
   <div class="regen-container--narrow" style="padding-top:32px;">
     <div class="regen-card">
@@ -742,7 +742,7 @@ ${betaBannerJS()}
 </head>
 <body>
   ${betaBannerHTML()}
-  ${brandHeader()}
+  ${brandHeader({ nav: [{ label: "AI Plugin", href: "/ai-plugin" }, { label: "Research", href: "/research" }, { label: "Dashboard", href: "/dashboard/login" }] })}
 
   <div class="regen-container--narrow" style="padding-top:40px;padding-bottom:40px;">
     <h1 style="color:var(--regen-navy);font-size:28px;font-weight:800;margin:0 0 8px;">Payment Successful</h1>
@@ -808,7 +808,7 @@ ${betaBannerJS()}
 </head>
 <body>
   ${betaBannerHTML()}
-  ${brandHeader()}
+  ${brandHeader({ nav: [{ label: "AI Plugin", href: "/ai-plugin" }, { label: "Research", href: "/research" }, { label: "Dashboard", href: "/dashboard/login" }] })}
   <div class="regen-container--narrow" style="padding:60px 24px;text-align:center;max-width:540px;margin:0 auto;">
     <h1 style="color:var(--regen-navy);font-size:24px;font-weight:700;margin:0 0 16px;">No worries!</h1>
     <p style="color:var(--regen-gray-600);font-size:15px;line-height:1.6;margin:0 0 24px;">
