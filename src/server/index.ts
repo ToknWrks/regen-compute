@@ -22,6 +22,7 @@ import { createRoutes } from "./routes.js";
 import { createCertificateRoutes } from "./certificate.js";
 import { createApiRoutes } from "./api-routes.js";
 import { createDashboardRoutes } from "./dashboard.js";
+import { createResearchRoutes } from "./research.js";
 import { loadConfig } from "../config.js";
 
 export function startServer(options: { port?: number; dbPath?: string } = {}) {
@@ -67,6 +68,10 @@ export function startServer(options: { port?: number; dbPath?: string } = {}) {
   // are conditionally registered inside createRoutes when stripe is non-null)
   const routes = createRoutes(stripe, db, baseUrl, config);
   app.use(routes);
+
+  // Research page (static, no dependencies)
+  const researchRoutes = createResearchRoutes(baseUrl);
+  app.use(researchRoutes);
 
   // Dashboard routes (login page works without Stripe; full dashboard needs DB)
   const dashboardRoutes = createDashboardRoutes(db, baseUrl, config);
