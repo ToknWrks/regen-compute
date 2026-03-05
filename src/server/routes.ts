@@ -88,14 +88,14 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Regenerative Compute — Fund Real Ecology from Your AI Sessions</title>
+  <title>Regenerative Compute — Fund Ecological Regeneration from Your AI Sessions</title>
   <meta name="description" content="Your AI has an ecological footprint. Regenerative Compute channels a small monthly amount into verified forests, soil, and biodiversity projects — with permanent, auditable proof.">
-  <meta property="og:title" content="Regenerative Compute — Fund Real Ecology from Your AI Sessions">
+  <meta property="og:title" content="Regenerative Compute — Fund Ecological Regeneration from Your AI Sessions">
   <meta property="og:description" content="Your AI has an ecological footprint. Regenerative Compute channels a small monthly amount into verified forests, soil, and biodiversity projects — with permanent, auditable proof.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="${baseUrl}">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Regenerative Compute — Fund Real Ecology from Your AI Sessions">
+  <meta name="twitter:title" content="Regenerative Compute — Fund Ecological Regeneration from Your AI Sessions">
   <meta name="twitter:description" content="Your AI has an ecological footprint. Fund verified forests, soil, and biodiversity projects with permanent proof.">
   ${brandFonts()}
   <style>
@@ -176,7 +176,7 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
   <section class="regen-hero">
     <div class="regen-container">
       <div class="regen-hero__label">For Claude, Cursor &amp; ChatGPT Users</div>
-      <h1>Your AI Has a Footprint. <span>Fund Real Ecology</span> to Balance It.</h1>
+      <h1>Your AI Has a Footprint. <span>Fund Ecological Regeneration</span> to Balance It.</h1>
       <p>Every AI session uses energy. Regenerative Compute channels a small monthly amount into verified ecological projects — forests, soil, biodiversity — with permanent, auditable proof.</p>
       <a class="regen-btn regen-btn--solid" href="#pricing">Choose Your Plan</a>
     </div>
