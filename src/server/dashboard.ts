@@ -22,10 +22,12 @@ import {
   getSubscriberByUserId,
   getCumulativeAttribution,
   getMonthlyAttributions,
+  getTransactions,
   createMagicLinkToken,
   verifyMagicLinkToken,
   type CumulativeAttribution,
   type MonthlyAttribution,
+  type Transaction,
 } from "./db.js";
 import { createSessionToken, getSessionEmail } from "./magic-link.js";
 import { sendMagicLinkEmail } from "../services/email.js";
@@ -216,6 +218,8 @@ function renderDashboardPage(
   manageUrl: string,
   amountCents: number,
   baseUrl: string,
+  nextRetirementDate: string | null,
+  transactions: Transaction[],
 ): string {
   const planName = displayPlanName(plan);
   const totalCredits = cumulative.total_carbon + cumulative.total_biodiversity + cumulative.total_uss;
@@ -362,6 +366,55 @@ function renderDashboardPage(
         <div class="regen-stat-label">Months Active</div>
       </div>
     </div>
+
+    <!-- Next retirement -->
+    ${monthly.length === 0 && nextRetirementDate ? `
+    <div style="margin-bottom:32px;">
+      <div style="background:linear-gradient(135deg,#f0f7f2,#e8f5ec);border:1px solid var(--regen-green-light);border-radius:var(--regen-radius);padding:24px 28px;text-align:center;">
+        <div style="font-size:13px;font-weight:700;color:var(--regen-green);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Next Credit Retirement</div>
+        <div style="font-size:22px;font-weight:800;color:var(--regen-navy);margin-bottom:8px;">${escapeHtml(nextRetirementDate)}</div>
+        <p style="font-size:14px;color:var(--regen-gray-500);margin:0;max-width:420px;display:inline-block;">Your subscription is already funding ecological regeneration. Credits will be retired on-chain at the end of your billing cycle and you'll receive a report with proof.</p>
+      </div>
+    </div>
+    ` : ""}
+
+    <!-- Contributions -->
+    ${transactions.length > 0 ? `
+    <div style="margin-bottom:32px;">
+      <h2 class="regen-section-title" style="font-size:20px;">Contributions</h2>
+      <div style="background:var(--regen-white);border:1px solid var(--regen-gray-200);border-radius:var(--regen-radius);overflow:hidden;">
+        <table class="regen-table">
+          <thead><tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Amount</th>
+            <th>Status</th>
+          </tr></thead>
+          <tbody>
+            ${transactions.map(t => {
+              const date = new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+              const isBoost = t.type === "topup";
+              const typeLabel = isBoost ? "One-time boost" : "Credit retirement";
+              const typeColor = isBoost ? "var(--regen-green)" : "var(--regen-teal)";
+              const hasRetirement = !!t.retirement_tx_hash;
+              const statusLabel = hasRetirement ? "Retired" : "Pending";
+              const statusBg = hasRetirement ? "#f0f7f2" : "#fef3c7";
+              const statusColor = hasRetirement ? "#2d6a4f" : "#92400e";
+              const proofLink = hasRetirement
+                ? ` <a href="https://www.mintscan.io/regen/tx/${escapeHtml(t.retirement_tx_hash!)}" target="_blank" rel="noopener" style="font-size:11px;">proof</a>`
+                : "";
+              return `<tr>
+                <td style="font-size:13px;">${escapeHtml(date)}</td>
+                <td><span style="color:${typeColor};font-weight:600;font-size:13px;">${typeLabel}</span></td>
+                <td style="font-weight:700;">$${(t.amount_cents / 100).toFixed(2)}</td>
+                <td><span style="display:inline-block;font-size:11px;font-weight:700;background:${statusBg};color:${statusColor};padding:2px 8px;border-radius:10px;">${statusLabel}</span>${proofLink}</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    ` : ""}
 
     <!-- Monthly chart -->
     <div class="dash-chart-section">
@@ -635,6 +688,12 @@ export function createDashboardRoutes(
     const badges = computeBadges(cumulative);
     const memberSince = formatDate(subscriber.created_at);
     const manageUrl = `${baseUrl}/manage?email=${encodeURIComponent(email)}`;
+    const transactions = getTransactions(db, user.id, 20);
+
+    // Next retirement date from subscription period end
+    const nextRetirementDate = subscriber.current_period_end
+      ? formatDate(subscriber.current_period_end)
+      : null;
 
     res.setHeader("Content-Type", "text/html");
     res.send(renderDashboardPage(
@@ -647,6 +706,8 @@ export function createDashboardRoutes(
       manageUrl,
       subscriber.amount_cents,
       baseUrl,
+      nextRetirementDate,
+      transactions,
     ));
   });
 
