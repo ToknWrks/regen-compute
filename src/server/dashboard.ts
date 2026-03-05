@@ -377,6 +377,21 @@ function renderDashboardPage(
       </div>
     </div>
 
+    <!-- Subscription management -->
+    <div style="margin-bottom:32px;">
+      <h2 class="regen-section-title" style="font-size:20px;">Subscription</h2>
+      <div style="background:var(--regen-white);border:1px solid var(--regen-gray-200);border-radius:var(--regen-radius);padding:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--regen-navy);">${escapeHtml(planName)} Plan</div>
+          <div style="font-size:13px;color:var(--regen-gray-500);margin-top:4px;">Member since ${escapeHtml(memberSince)}</div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <a class="regen-btn regen-btn--outline regen-btn--sm" href="${escapeHtml(manageUrl)}">Manage Subscription</a>
+          <a class="regen-btn regen-btn--sm" href="${escapeHtml(manageUrl)}" style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;">Cancel Subscription</a>
+        </div>
+      </div>
+    </div>
+
     <!-- Export placeholder -->
     <div class="dash-export">
       <p>Export Impact Report (PDF) <span class="dash-coming-soon">Coming Soon</span></p>
@@ -384,8 +399,8 @@ function renderDashboardPage(
   </div>
 
   ${brandFooter({ links: [
-    { label: "Manage Subscription", href: manageUrl },
     { label: "Regen Network", href: "https://regen.network" },
+    { label: "Marketplace", href: "https://app.regen.network" },
   ] })}
 
   ${monthly.length > 0 ? `
