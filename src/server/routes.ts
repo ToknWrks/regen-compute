@@ -170,7 +170,7 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
 
   ${referralValid ? `<div class="regen-ref-banner"><span>Your friend invited you</span> — first month free!</div>` : ""}
 
-  ${brandHeader({ nav: [{ label: "Dashboard", href: "/dashboard/login" }] })}
+  ${brandHeader({ nav: [{ label: "Research", href: "/research" }, { label: "Dashboard", href: "/dashboard/login" }] })}
 
   <!-- Hero -->
   <section class="regen-hero">
@@ -244,20 +244,19 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
             : `<a class="regen-btn regen-btn--solid regen-btn--block" href="${forestUrl}">Subscribe</a>`}
         </div>
       </div>
-    </div>
-  </section>
 
-  <!-- Custom Amount -->
-  <section class="hiw-section" style="background:var(--regen-gray-50);">
-    <div class="regen-container" style="max-width:480px;text-align:center;">
-      <h2 class="regen-section-title">Or choose your own amount</h2>
-      <p style="color:var(--regen-gray-500);margin-bottom:20px;">Fund regeneration at any level that feels right.</p>
-      <div style="display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap;">
-        <label style="font-size:15px;color:var(--regen-navy);font-weight:600;">$</label>
-        <input id="custom-amount" type="number" min="1" step="0.50" value="7" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:16px;text-align:center;">
-        <button onclick="fundCustom()" class="regen-btn regen-btn--solid" style="white-space:nowrap;">Fund Regeneration</button>
+      <!-- Custom Amount — inline card under tiers -->
+      <div style="background:var(--regen-white);border:2px solid var(--regen-gray-200);border-radius:var(--regen-radius-lg);padding:20px 28px;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;">
+        <span style="font-weight:700;font-size:15px;color:var(--regen-navy);white-space:nowrap;">Set your own subscription amount</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:15px;color:var(--regen-navy);font-weight:600;">$</label>
+          <input id="custom-amount" type="number" min="1" step="0.50" value="5" style="width:80px;padding:8px 12px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:16px;text-align:center;">
+          <span style="font-size:14px;color:var(--regen-gray-500);">/mo</span>
+        </div>
+        <button onclick="fundCustom()" class="regen-btn regen-btn--solid regen-btn--sm" style="white-space:nowrap;">Subscribe</button>
+        <p id="custom-error" style="color:#c33;font-size:13px;margin:0;display:none;width:100%;text-align:center;"></p>
       </div>
-      <p id="custom-error" style="color:#c33;font-size:13px;margin-top:8px;display:none;"></p>
+
     </div>
   </section>
 
