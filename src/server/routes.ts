@@ -170,7 +170,7 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
 
   ${referralValid ? `<div class="regen-ref-banner"><span>Your friend invited you</span> — first month free!</div>` : ""}
 
-  ${brandHeader({ nav: [{ label: "Research", href: "/research" }, { label: "Dashboard", href: "/dashboard/login" }] })}
+  ${brandHeader({ nav: [{ label: "AI Plugin", href: "/ai-plugin" }, { label: "Research", href: "/research" }, { label: "Dashboard", href: "/dashboard/login" }] })}
 
   <!-- Hero -->
   <section class="regen-hero">
@@ -179,13 +179,6 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
       <h1>Your AI Has a Footprint. <span>Fund Real Ecology</span> to Balance It.</h1>
       <p>Every AI session uses energy. Regenerative Compute channels a small monthly amount into verified ecological projects — forests, soil, biodiversity — with permanent, auditable proof.</p>
       <a class="regen-btn regen-btn--solid" href="#pricing">Choose Your Plan</a>
-    </div>
-  </section>
-
-  <!-- Explainer -->
-  <section style="padding:40px 0 0;text-align:center;">
-    <div class="regen-container--narrow">
-      <p style="font-size:16px;color:var(--regen-gray-700);line-height:1.7;margin:0;">Regenerative Compute is a plugin for AI coding assistants like Claude and Cursor. It estimates the ecological footprint of your AI sessions and channels your subscription into verified regeneration projects. Think of it as a utility bill for the planet — small, automatic, and real.</p>
     </div>
   </section>
 

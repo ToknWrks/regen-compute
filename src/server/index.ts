@@ -23,6 +23,7 @@ import { createCertificateRoutes } from "./certificate.js";
 import { createApiRoutes } from "./api-routes.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { createResearchRoutes } from "./research.js";
+import { createAiPluginRoutes } from "./ai-plugin.js";
 import { loadConfig } from "../config.js";
 
 export function startServer(options: { port?: number; dbPath?: string } = {}) {
@@ -72,6 +73,10 @@ export function startServer(options: { port?: number; dbPath?: string } = {}) {
   // Research page (static, no dependencies)
   const researchRoutes = createResearchRoutes(baseUrl);
   app.use(researchRoutes);
+
+  // AI Plugin page (static, no dependencies)
+  const aiPluginRoutes = createAiPluginRoutes(baseUrl);
+  app.use(aiPluginRoutes);
 
   // Dashboard routes (login page works without Stripe; full dashboard needs DB)
   const dashboardRoutes = createDashboardRoutes(db, baseUrl, config);
