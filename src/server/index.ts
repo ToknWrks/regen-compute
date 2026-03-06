@@ -51,6 +51,12 @@ export function startServer(options: { port?: number; dbPath?: string } = {}) {
     res.send(regenLogoSVG);
   });
 
+  // OG image for social media previews
+  app.get("/og-image.jpg", (_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=31536000");
+    res.sendFile("og-image.jpg", { root: process.cwd() });
+  });
+
   // Always init DB and config — display-only pages need them
   const db = getDb(dbPath);
   const config = loadConfig();

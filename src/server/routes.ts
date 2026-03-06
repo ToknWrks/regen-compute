@@ -95,9 +95,11 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
   <meta property="og:description" content="Your AI has an ecological footprint. Regenerative Compute channels a small monthly amount into verified forests, soil, and biodiversity projects — with permanent, auditable proof.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="${baseUrl}">
+  <meta property="og:image" content="${baseUrl}/og-image.jpg">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Regenerative Compute — Fund Ecological Regeneration from Your AI Sessions">
   <meta name="twitter:description" content="Your AI has an ecological footprint. Fund verified forests, soil, and biodiversity projects with permanent proof.">
+  <meta name="twitter:image" content="${baseUrl}/og-image.jpg">
   ${brandFonts()}
   <style>
     ${betaBannerCSS()}
