@@ -366,9 +366,9 @@ Then estimate my AI usage footprint and recommend a tier ($1.25, $2.50, or $5/mo
           <p style="font-size:13px;color:var(--regen-gray-500);margin:0;line-height:1.5;">Preserving threatened tropical forest ecosystems in Colombia. 30-year crediting periods protect habitat for jaguars and hundreds of species.</p>
         </div>
         <div style="flex:1 1 200px;max-width:280px;background:var(--regen-white);border:1px solid var(--regen-gray-200);border-radius:var(--regen-radius-lg);padding:20px;text-align:left;">
-          <div style="font-size:12px;font-weight:700;color:var(--regen-green);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Coral &amp; Kelp Forests</div>
-          <div style="font-size:15px;font-weight:700;color:var(--regen-navy);margin-bottom:6px;">SeaTrees Marine Restoration</div>
-          <p style="font-size:13px;color:var(--regen-gray-500);margin:0;line-height:1.5;">Restoring coral reefs, mangrove forests, and kelp forests. Community-led marine restoration funded through biodiversity credits.</p>
+          <div style="font-size:12px;font-weight:700;color:var(--regen-green);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Urban Forests</div>
+          <div style="font-size:15px;font-weight:700;color:var(--regen-navy);margin-bottom:6px;">City Forest Credits</div>
+          <p style="font-size:13px;color:var(--regen-gray-500);margin:0;line-height:1.5;">The national standard for urban forest carbon. Tree preservation and planting in U.S. cities — sequestering carbon while improving air quality, water filtration, and wildlife habitat.</p>
         </div>
         <div style="flex:1 1 200px;max-width:280px;background:var(--regen-white);border:1px solid var(--regen-gray-200);border-radius:var(--regen-radius-lg);padding:20px;text-align:left;">
           <div style="font-size:12px;font-weight:700;color:var(--regen-green);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Umbrella Species</div>
