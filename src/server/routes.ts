@@ -171,10 +171,9 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
     .regen-tier--clickable:active {
       transform: translateY(0);
     }
-    .regen-tier__cta {
-      margin-top: auto; padding-top: 12px;
-      font-size: 14px; font-weight: 700; color: var(--regen-green);
-      text-align: center; letter-spacing: 0.02em;
+    .regen-tier__cta-btn {
+      margin-top: auto;
+      pointer-events: none;
     }
     .regen-tier__effective {
       font-size: 13px; color: var(--regen-green); font-weight: 600;
@@ -272,7 +271,7 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
           <div class="regen-tier__price price-yearly" style="display:none;">$12.50<span>/yr</span></div>
           <div class="regen-tier__effective price-yearly" style="display:none;">$1.04/mo — 2 months free</div>
           <div class="regen-tier__desc">You use AI a few times a week. This covers your share and funds real ecological projects.${referralValid ? "<br><strong>First month free!</strong>" : ""}</div>
-          <div class="regen-tier__cta">Subscribe</div>
+          <div class="regen-btn regen-btn--solid regen-btn--block regen-tier__cta-btn">Subscribe</div>
         </div>
         <div class="regen-tier tier-featured regen-tier--clickable" onclick="${hasPriceIds ? "subscribe('grove')" : `window.location.href='${groveUrl}'`}">
           <div class="tier-featured-badge">Most Popular</div>
@@ -281,7 +280,7 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
           <div class="regen-tier__price price-yearly" style="display:none;">$25<span>/yr</span></div>
           <div class="regen-tier__effective price-yearly" style="display:none;">$2.08/mo — 2 months free</div>
           <div class="regen-tier__desc">AI is part of your daily workflow. Full ecological accountability for regular use.${referralValid ? "<br><strong>First month free!</strong>" : ""}</div>
-          <div class="regen-tier__cta">Subscribe</div>
+          <div class="regen-btn regen-btn--solid regen-btn--block regen-tier__cta-btn">Subscribe</div>
         </div>
         <div class="regen-tier regen-tier--clickable" onclick="${hasPriceIds ? "subscribe('forest')" : `window.location.href='${forestUrl}'`}">
           <div class="regen-tier__name">Agent</div>
@@ -289,7 +288,7 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
           <div class="regen-tier__price price-yearly" style="display:none;">$50<span>/yr</span></div>
           <div class="regen-tier__effective price-yearly" style="display:none;">$4.17/mo — 2 months free</div>
           <div class="regen-tier__desc">For autonomous agents and power users — maximum autonomy, maximum impact.${referralValid ? "<br><strong>First month free!</strong>" : ""}</div>
-          <div class="regen-tier__cta">Subscribe</div>
+          <div class="regen-btn regen-btn--solid regen-btn--block regen-tier__cta-btn">Subscribe</div>
         </div>
       </div>
 
