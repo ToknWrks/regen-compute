@@ -196,6 +196,33 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
     console.log("Migration: added referred_by column");
   }
 
+  // Migration: update subscribers CHECK constraint to include new plan names
+  const subSchema = (_db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='subscribers'").get() as { sql: string } | undefined)?.sql ?? "";
+  if (subSchema.includes("plan IN ('seedling', 'grove', 'forest')") && !subSchema.includes("'dabbler'")) {
+    _db.exec(`
+      CREATE TABLE subscribers_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        stripe_subscription_id TEXT UNIQUE NOT NULL,
+        plan TEXT NOT NULL CHECK(plan IN ('seedling', 'grove', 'forest', 'dabbler', 'builder', 'agent')),
+        amount_cents INTEGER NOT NULL,
+        billing_interval TEXT NOT NULL DEFAULT 'monthly' CHECK(billing_interval IN ('monthly', 'yearly')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'paused', 'cancelled')),
+        current_period_start TEXT,
+        current_period_end TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO subscribers_new SELECT id, user_id, stripe_subscription_id, plan, amount_cents, billing_interval, status, current_period_start, current_period_end, created_at, updated_at FROM subscribers;
+      DROP TABLE subscribers;
+      ALTER TABLE subscribers_new RENAME TO subscribers;
+      CREATE INDEX IF NOT EXISTS idx_subscribers_user_id ON subscribers(user_id);
+      CREATE INDEX IF NOT EXISTS idx_subscribers_status ON subscribers(status);
+      CREATE INDEX IF NOT EXISTS idx_subscribers_stripe_id ON subscribers(stripe_subscription_id);
+    `);
+    console.log("Migration: updated subscribers CHECK constraint to include dabbler/builder/agent plans");
+  }
+
   // Backfill referral codes for users that don't have one
   const usersWithoutCodes = _db.prepare(
     "SELECT id FROM users WHERE referral_code IS NULL"
