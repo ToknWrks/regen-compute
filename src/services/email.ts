@@ -41,7 +41,7 @@ function emailHeader(): string {
 }
 
 /** Shared email footer */
-function emailFooter(manageUrl?: string): string {
+function emailFooter(manageUrl?: string, unsubscribeEmailUrl?: string): string {
   return `
                 <!-- Footer -->
                 <tr>
@@ -55,8 +55,12 @@ function emailFooter(manageUrl?: string): string {
                     ${manageUrl ? `
                     <p style="margin: 0 0 8px; font-family: Arial, sans-serif; font-size: 12px; color: #9ca3af;">
                       <a href="${escapeHtml(manageUrl)}" style="color: #6b7280; text-decoration: underline;">Manage subscription</a>
-                      &nbsp;&middot;&nbsp;
-                      <a href="${escapeHtml(manageUrl)}" style="color: #6b7280; text-decoration: underline;">Unsubscribe</a>
+                      ${unsubscribeEmailUrl
+                        ? `&nbsp;&middot;&nbsp;
+                      <a href="${escapeHtml(unsubscribeEmailUrl)}" style="color: #6b7280; text-decoration: underline;">Unsubscribe from emails</a>`
+                        : `&nbsp;&middot;&nbsp;
+                      <a href="${escapeHtml(manageUrl)}" style="color: #6b7280; text-decoration: underline;">Unsubscribe</a>`
+                      }
                     </p>
                     ` : ""}
                     <p style="margin: 0; font-family: Arial, sans-serif; font-size: 11px; color: #d1d5db;">
@@ -80,6 +84,8 @@ interface EmailData {
   certificateUrl: string | null;
   txHashes: { label: string; hash: string; url: string }[];
   manageUrl: string;
+  dashboardUrl: string;
+  unsubscribeEmailUrl: string;
   referralLink: string | null;
 }
 
@@ -139,14 +145,37 @@ function formatCredits(n: number): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 6 });
 }
 
+/** Build a human-readable list of credit types retired this month */
+function describeRetiredTypes(thisMonth: { carbon: number; biodiversity: number; uss: number }): string {
+  const types: string[] = [];
+  if (thisMonth.carbon > 0) types.push("carbon removal");
+  if (thisMonth.biodiversity > 0) types.push("biodiversity protection");
+  if (thisMonth.uss > 0) types.push("marine stewardship");
+  if (types.length === 0) return "ecological regeneration";
+  if (types.length === 1) return types[0];
+  if (types.length === 2) return `${types[0]} and ${types[1]}`;
+  return `${types.slice(0, -1).join(", ")}, and ${types[types.length - 1]}`;
+}
+
+/** Count distinct credit types retired this month */
+function countProjectTypes(thisMonth: { carbon: number; biodiversity: number; uss: number }): number {
+  let count = 0;
+  if (thisMonth.carbon > 0) count++;
+  if (thisMonth.biodiversity > 0) count++;
+  if (thisMonth.uss > 0) count++;
+  return count;
+}
+
 /** Render the full HTML email for one subscriber */
 function renderEmailHtml(data: EmailData): string {
   const planName = data.plan.charAt(0).toUpperCase() + data.plan.slice(1);
   const totalThisMonth = data.thisMonth.carbon + data.thisMonth.biodiversity + data.thisMonth.uss;
   const totalCumulative = data.cumulative.total_carbon + data.cumulative.total_biodiversity + data.cumulative.total_uss;
+  const projectCount = countProjectTypes(data.thisMonth);
+  const impactDescription = describeRetiredTypes(data.thisMonth);
 
   const shareText = encodeURIComponent(
-    `I just funded the retirement of ${formatCredits(totalThisMonth)} ecological credits on Regen Network via Regenerative Compute. Regenerative contribution, not carbon offset.`
+    `I just retired ecological credits through @raboratory's Regenerative Compute to account for my AI usage. ${formatCredits(totalCumulative)} credits retired and counting. compute.regen.network`
   );
   const shareUrl = data.certificateUrl ? encodeURIComponent(data.certificateUrl) : "";
 
@@ -202,7 +231,7 @@ function renderEmailHtml(data: EmailData): string {
                 <tr>
                   <td style="background: linear-gradient(135deg, #4FB573, #79C6AA); padding: 28px 32px; text-align: center;">
                     <p style="margin: 0 0 4px; font-family: 'Inter', Arial, sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.85);">MONTHLY IMPACT REPORT</p>
-                    <p style="margin: 0; font-family: 'Mulish', Arial, sans-serif; font-size: 22px; font-weight: 800; color: #ffffff;">Your Ecological Contribution</p>
+                    <p style="margin: 0; font-family: 'Mulish', Arial, sans-serif; font-size: 22px; font-weight: 800; color: #ffffff;">Your Latest Retirements Are In!</p>
                   </td>
                 </tr>
 
@@ -211,8 +240,13 @@ function renderEmailHtml(data: EmailData): string {
                   <td style="padding: 28px 32px;">
 
                     <!-- Greeting -->
-                    <p style="margin: 0 0 20px; font-family: Arial, sans-serif; font-size: 15px; color: #1a1a1a; line-height: 1.6;">
+                    <p style="margin: 0 0 12px; font-family: Arial, sans-serif; font-size: 15px; color: #1a1a1a; line-height: 1.6;">
                       Your <strong>${escapeHtml(planName)}</strong> subscription ($${escapeHtml(data.contributionDollars)}/mo) funded verified ecological regeneration this month:
+                    </p>
+
+                    <!-- Inspiring copy -->
+                    <p style="margin: 0 0 20px; font-family: Arial, sans-serif; font-size: 15px; color: #374151; line-height: 1.6; font-style: italic;">
+                      This month, your subscription retired ${escapeHtml(formatCredits(totalThisMonth))} credits${projectCount > 1 ? ` across ${projectCount} credit types` : ""}, funding ${escapeHtml(impactDescription)}.${data.cumulative.months_active > 1 ? ` Over ${data.cumulative.months_active} months, you've now retired ${escapeHtml(formatCredits(totalCumulative))} credits total.` : ""} Every credit is permanently recorded on-chain.
                     </p>
 
                     <!-- This Month box -->
@@ -271,12 +305,21 @@ function renderEmailHtml(data: EmailData): string {
                       </tr>
                     </table>
 
+                    <!-- CTA: View Dashboard -->
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 12px;">
+                      <tr>
+                        <td align="center">
+                          <a href="${escapeHtml(data.dashboardUrl)}" style="display: inline-block; padding: 14px 32px; background-color: #4FB573; color: #ffffff; font-family: Arial, sans-serif; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">View Your Dashboard</a>
+                        </td>
+                      </tr>
+                    </table>
+
                     <!-- CTA: View Certificate -->
                     ${data.certificateUrl ? `
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
                       <tr>
                         <td align="center">
-                          <a href="${escapeHtml(data.certificateUrl)}" style="display: inline-block; padding: 14px 32px; background-color: #2d6a4f; color: #ffffff; font-family: Arial, sans-serif; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">View On-Chain Proof</a>
+                          <a href="${escapeHtml(data.certificateUrl)}" style="display: inline-block; padding: 14px 32px; background-color: #2d6a4f; color: #ffffff; font-family: Arial, sans-serif; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px;">View Certificate</a>
                         </td>
                       </tr>
                     </table>
@@ -337,7 +380,7 @@ function renderEmailHtml(data: EmailData): string {
                   </td>
                 </tr>
 
-                ${emailFooter(data.manageUrl)}
+                ${emailFooter(data.manageUrl, data.unsubscribeEmailUrl)}
 
               </table>
             </td>
@@ -455,6 +498,8 @@ export async function sendMonthlyEmails(
 
     const cumulative = getCumulativeAttribution(db, sub.subscriber_id);
     const manageUrl = `${serverUrl}/manage?email=${encodeURIComponent(sub.user_email)}`;
+    const dashboardUrl = `${serverUrl}/dashboard`;
+    const unsubscribeEmailUrl = `${serverUrl}/manage?email=${encodeURIComponent(sub.user_email)}&section=emails`;
 
     const refCode = userReferralCodes.get(sub.subscriber_id);
     const referralLink = refCode ? `${serverUrl}/r/${refCode}` : null;
@@ -472,6 +517,8 @@ export async function sendMonthlyEmails(
       certificateUrl,
       txHashes,
       manageUrl,
+      dashboardUrl,
+      unsubscribeEmailUrl,
       referralLink,
     };
 
@@ -485,7 +532,7 @@ export async function sendMonthlyEmails(
         sub.user_email,
         subject,
         html,
-        manageUrl,
+        unsubscribeEmailUrl,
       );
       sent++;
     } catch (err) {
