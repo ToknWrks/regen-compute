@@ -42,7 +42,7 @@ import { betaBannerCSS, betaBannerHTML, betaBannerJS } from "./beta-banner.js";
 import { sendWelcomeEmail } from "../services/email.js";
 import { deriveSubscriberAddress } from "../services/subscriber-wallet.js";
 import { retireForSubscriber, accumulateBurnBudget, calculateNetAfterStripe } from "../services/retire-subscriber.js";
-import { checkAndSendMonthlyReminder } from "../services/admin-telegram.js";
+import { checkAndSendMonthlyReminder, checkTradableStock } from "../services/admin-telegram.js";
 import { updateRegistryProfile } from "../services/registry-profile.js";
 import { brandFonts, brandCSS, brandHeader, brandFooter } from "./brand.js";
 
@@ -1065,12 +1065,12 @@ ${betaBannerJS()}
     </div>
 
     <div class="profile-prompt" id="profilePrompt" style="margin-top:24px;">
-      <h2>How should we credit your impact?</h2>
-      <p>Each retirement is recorded on-chain to your personal Regen address. Add your name so it appears on your <a href="https://app.regen.network" target="_blank" rel="noopener" style="color:var(--regen-green);font-weight:600;">Regen Network portfolio page</a> and retirement certificates. This is optional and you can change it anytime from your dashboard.</p>
-      <input type="text" id="displayNameInput" placeholder="Your name (e.g. Jane Smith)" maxlength="100" autocomplete="name" />
+      <h2>Name your impact profile</h2>
+      <p>You get a public <a href="https://app.regen.network" target="_blank" rel="noopener" style="color:var(--regen-green);font-weight:600;">Regen Network portfolio page</a> showing every credit retired on your behalf. Enter your name, business name, initials, or a handle — whatever you'd like displayed. You can change it anytime from your dashboard.</p>
+      <input type="text" id="displayNameInput" placeholder="e.g. Jane Smith, Acme Corp, JS" maxlength="100" autocomplete="name" />
       <div class="btn-row">
         <button class="save-btn" id="saveNameBtn" onclick="saveDisplayName()">Save</button>
-        <button class="skip-btn" onclick="skipDisplayName()">Skip for now</button>
+        <button class="skip-btn" onclick="skipDisplayName()">Skip — use &ldquo;My On-Chain Proof&rdquo;</button>
       </div>
     </div>
     <div class="profile-saved" id="profileSaved"></div>
@@ -1209,6 +1209,12 @@ export REGEN_BALANCE_URL=${baseUrl}</pre>
     }
     function skipDisplayName() {
       document.getElementById('profilePrompt').style.display = 'none';
+      // Set default name in background
+      fetch('/profile/display-name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: '${sessionId}', display_name: 'My On-Chain Proof' })
+      }).catch(function() {});
     }
   </script>
 ${betaBannerJS()}
@@ -1543,17 +1549,23 @@ ${betaBannerJS()}
 <tbody>${tableRows || "<tr><td colspan=6>No feedback yet</td></tr>"}</tbody></table></body></html>`);
   });
 
-  // Daily admin reminder check (monthly credit selection confirmation)
+  // Daily admin checks: monthly credit selection + tradable stock levels
   const DAILY_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
   setInterval(() => {
     checkAndSendMonthlyReminder().catch((err) => {
       console.error("Monthly reminder check error:", err instanceof Error ? err.message : err);
+    });
+    checkTradableStock().catch((err) => {
+      console.error("Tradable stock check error:", err instanceof Error ? err.message : err);
     });
   }, DAILY_CHECK_INTERVAL_MS);
   // Also check on startup
   setTimeout(() => {
     checkAndSendMonthlyReminder().catch((err) => {
       console.error("Monthly reminder check error (startup):", err instanceof Error ? err.message : err);
+    });
+    checkTradableStock().catch((err) => {
+      console.error("Tradable stock check error (startup):", err instanceof Error ? err.message : err);
     });
   }, 15_000);
 
