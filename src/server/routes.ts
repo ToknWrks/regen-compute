@@ -180,6 +180,55 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
       margin: -4px 0 8px;
     }
 
+    /* Annual nudge modal */
+    .nudge-overlay {
+      display: none; position: fixed; inset: 0; z-index: 9999;
+      background: rgba(0,0,0,0.45); align-items: center; justify-content: center;
+    }
+    .nudge-overlay.active { display: flex; }
+    .nudge-box {
+      background: var(--regen-white); border-radius: var(--regen-radius-lg);
+      padding: 32px 28px; max-width: 420px; width: 90%;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.2); text-align: center;
+      position: relative;
+    }
+    .nudge-box h3 {
+      font-size: 20px; font-weight: 800; color: var(--regen-navy);
+      margin: 0 0 16px;
+    }
+    .nudge-reason {
+      display: flex; align-items: flex-start; gap: 10px;
+      text-align: left; margin-bottom: 12px;
+    }
+    .nudge-reason-icon {
+      flex-shrink: 0; width: 28px; height: 28px; line-height: 28px;
+      border-radius: 50%; background: var(--regen-green); color: #fff;
+      font-size: 14px; font-weight: 800; text-align: center;
+    }
+    .nudge-reason p {
+      margin: 0; font-size: 14px; color: var(--regen-gray-500); line-height: 1.5;
+    }
+    .nudge-reason strong { color: var(--regen-navy); }
+    .nudge-btns {
+      display: flex; flex-direction: column; gap: 10px; margin-top: 20px;
+    }
+    .nudge-btn-yearly {
+      display: block; width: 100%; padding: 12px;
+      background: linear-gradient(135deg, var(--regen-green), var(--regen-sage));
+      color: #fff; border: none; border-radius: 10px;
+      font-size: 15px; font-weight: 700; cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .nudge-btn-yearly:hover { opacity: 0.9; }
+    .nudge-btn-monthly {
+      display: block; width: 100%; padding: 10px;
+      background: transparent; color: var(--regen-gray-500);
+      border: 1px solid var(--regen-gray-200); border-radius: 10px;
+      font-size: 13px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .nudge-btn-monthly:hover { background: var(--regen-gray-50); }
+
     /* Stats section */
     .stats-section { padding: 52px 0; border-top: 1px solid var(--regen-gray-200); }
     .stats-bar {
@@ -562,9 +611,55 @@ Then estimate my AI usage footprint and recommend a tier ($1.25, $2.50, or $5/mo
     }
   </script>
 
+  <!-- Annual nudge modal -->
+  <div class="nudge-overlay" id="nudge-overlay" onclick="if(event.target===this)closeNudge()">
+    <div class="nudge-box">
+      <h3>Consider going yearly</h3>
+      <div class="nudge-reason">
+        <div class="nudge-reason-icon">1</div>
+        <p><strong>Save money</strong> — the yearly plan is like getting two months free.</p>
+      </div>
+      <div class="nudge-reason">
+        <div class="nudge-reason-icon">2</div>
+        <p><strong>More ecological impact</strong> — with fewer transactions, less goes to payment processing fees and more funds verified ecological regeneration.</p>
+      </div>
+      <div class="nudge-btns">
+        <button class="nudge-btn-yearly" id="nudge-btn-yearly" onclick="switchToYearly()">Switch to Yearly & Save</button>
+        <button class="nudge-btn-monthly" id="nudge-btn-monthly" onclick="continueMonthly()">Continue with Monthly</button>
+      </div>
+    </div>
+  </div>
+
   ${hasPriceIds ? `<script>
+    var pendingTier = null;
+
     function subscribe(tier) {
-      var body = { tier: tier, interval: currentInterval };
+      if (currentInterval === 'monthly') {
+        pendingTier = tier;
+        document.getElementById('nudge-overlay').classList.add('active');
+        return;
+      }
+      doSubscribe(tier, currentInterval);
+    }
+
+    function switchToYearly() {
+      closeNudge();
+      setInterval('yearly');
+      doSubscribe(pendingTier, 'yearly');
+    }
+
+    function continueMonthly() {
+      closeNudge();
+      doSubscribe(pendingTier, 'monthly');
+    }
+
+    function closeNudge() {
+      document.getElementById('nudge-overlay').classList.remove('active');
+      pendingTier = null;
+    }
+
+    function doSubscribe(tier, interval) {
+      var body = { tier: tier, interval: interval };
       ${refCode ? `body.referral_code = ${JSON.stringify(refCode)};` : ""}
       fetch('/subscribe', {
         method: 'POST',
