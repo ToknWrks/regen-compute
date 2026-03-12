@@ -176,6 +176,49 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS subscriber_retirements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subscriber_id INTEGER NOT NULL REFERENCES subscribers(id),
+      regen_address TEXT NOT NULL,
+      gross_amount_cents INTEGER NOT NULL,
+      net_amount_cents INTEGER NOT NULL,
+      credits_budget_cents INTEGER NOT NULL,
+      burn_budget_cents INTEGER NOT NULL,
+      ops_budget_cents INTEGER NOT NULL,
+      total_credits_retired REAL NOT NULL DEFAULT 0,
+      total_spent_cents INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sub_retirements_subscriber ON subscriber_retirements(subscriber_id);
+    CREATE INDEX IF NOT EXISTS idx_sub_retirements_created ON subscriber_retirements(created_at);
+
+    CREATE TABLE IF NOT EXISTS subscriber_retirement_batches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      retirement_id INTEGER NOT NULL REFERENCES subscriber_retirements(id),
+      batch_denom TEXT NOT NULL,
+      credit_class_id TEXT NOT NULL,
+      credit_type_abbrev TEXT NOT NULL,
+      budget_cents INTEGER NOT NULL DEFAULT 0,
+      spent_cents INTEGER NOT NULL DEFAULT 0,
+      credits_retired REAL NOT NULL DEFAULT 0,
+      buy_tx_hash TEXT,
+      send_retire_tx_hash TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sub_ret_batches_retirement ON subscriber_retirement_batches(retirement_id);
+
+    CREATE TABLE IF NOT EXISTS burn_accumulator (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      amount_cents INTEGER NOT NULL,
+      executed INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_burn_accumulator_executed ON burn_accumulator(executed);
+
     CREATE TABLE IF NOT EXISTS referral_rewards (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       referrer_user_id INTEGER NOT NULL REFERENCES users(id),
@@ -238,6 +281,18 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
       CREATE INDEX IF NOT EXISTS idx_subscribers_stripe_id ON subscribers(stripe_subscription_id);
     `);
     console.log("Migration: updated subscribers CHECK constraint to include dabbler/builder/agent plans");
+  }
+
+  // Migration: add regen_address to subscribers
+  if (!subCols.includes("regen_address")) {
+    _db.exec(`ALTER TABLE subscribers ADD COLUMN regen_address TEXT`);
+    console.log("Migration: added regen_address column to subscribers");
+  }
+
+  // Migration: add display_name to users
+  if (!existingCols.includes("display_name")) {
+    _db.exec(`ALTER TABLE users ADD COLUMN display_name TEXT`);
+    console.log("Migration: added display_name column to users");
   }
 
   // Backfill referral codes for users that don't have one
@@ -383,6 +438,7 @@ export interface Subscriber {
   amount_cents: number;
   billing_interval: "monthly" | "yearly";
   status: "active" | "paused" | "cancelled";
+  regen_address: string | null;
   current_period_start: string | null;
   current_period_end: string | null;
   created_at: string;
@@ -436,6 +492,52 @@ export function updateSubscriber(
   sets.push("updated_at = datetime('now')");
   values.push(stripeSubId);
   db.prepare(`UPDATE subscribers SET ${sets.join(", ")} WHERE stripe_subscription_id = ?`).run(...values);
+}
+
+export function setSubscriberRegenAddress(db: Database.Database, subscriberId: number, regenAddress: string): void {
+  db.prepare(
+    "UPDATE subscribers SET regen_address = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(regenAddress, subscriberId);
+}
+
+// --- Subscriber retirement types and helpers ---
+
+export interface SubscriberRetirement {
+  id: number;
+  subscriber_id: number;
+  regen_address: string;
+  gross_amount_cents: number;
+  net_amount_cents: number;
+  credits_budget_cents: number;
+  burn_budget_cents: number;
+  ops_budget_cents: number;
+  total_credits_retired: number;
+  total_spent_cents: number;
+  created_at: string;
+}
+
+export function getSubscriberRetirements(db: Database.Database, subscriberId: number): SubscriberRetirement[] {
+  return db.prepare(
+    "SELECT * FROM subscriber_retirements WHERE subscriber_id = ? ORDER BY created_at DESC"
+  ).all(subscriberId) as SubscriberRetirement[];
+}
+
+export function getCumulativeSubscriberRetirements(db: Database.Database, subscriberId: number): {
+  total_credits_retired: number;
+  total_spent_cents: number;
+  total_gross_cents: number;
+  retirement_count: number;
+} {
+  const row = db.prepare(`
+    SELECT
+      COALESCE(SUM(total_credits_retired), 0) AS total_credits_retired,
+      COALESCE(SUM(total_spent_cents), 0) AS total_spent_cents,
+      COALESCE(SUM(gross_amount_cents), 0) AS total_gross_cents,
+      COUNT(*) AS retirement_count
+    FROM subscriber_retirements
+    WHERE subscriber_id = ?
+  `).get(subscriberId) as { total_credits_retired: number; total_spent_cents: number; total_gross_cents: number; retirement_count: number } | undefined;
+  return row ?? { total_credits_retired: 0, total_spent_cents: 0, total_gross_cents: 0, retirement_count: 0 };
 }
 
 // --- Pool run types and helpers ---

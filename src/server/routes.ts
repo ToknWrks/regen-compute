@@ -30,9 +30,12 @@ import {
   setUserReferredBy,
   createReferralReward,
   getReferralCount,
+  setSubscriberRegenAddress,
 } from "./db.js";
 import { betaBannerCSS, betaBannerHTML, betaBannerJS } from "./beta-banner.js";
 import { sendWelcomeEmail } from "../services/email.js";
+import { deriveSubscriberAddress } from "../services/subscriber-wallet.js";
+import { retireForSubscriber, accumulateBurnBudget } from "../services/retire-subscriber.js";
 import { brandFonts, brandCSS, brandHeader, brandFooter } from "./brand.js";
 
 // 5-minute in-memory cache for network stats
@@ -885,7 +888,9 @@ ${betaBannerJS()}
       handleSubscriptionDeleted(db, sub);
     } else if (event.type === "invoice.paid") {
       const invoice = event.data.object as Stripe.Invoice;
-      handleInvoicePaid(db, invoice);
+      // Note: handleInvoicePaid triggers retirement asynchronously (fire-and-forget)
+      // so the webhook responds quickly. We still await the synchronous part (period updates).
+      await handleInvoicePaid(db, invoice);
     }
 
     res.json({ received: true });
@@ -1418,8 +1423,17 @@ async function handleSubscriptionCreated(db: Database.Database, sub: Stripe.Subs
       ? new Date(((sub as unknown as Record<string, unknown>).current_period_end as number) * 1000).toISOString()
       : undefined;
 
-    createSubscriber(db, user.id, stripeSubId, plan, amountCents, periodStart, periodEnd, billingInterval);
+    const subscriber = createSubscriber(db, user.id, stripeSubId, plan, amountCents, periodStart, periodEnd, billingInterval);
     console.log(`Subscription created: ${stripeSubId} plan=${plan} interval=${billingInterval} amount=$${(amountCents / 100).toFixed(2)}`);
+
+    // Derive and store Regen address for this subscriber
+    try {
+      const regenAddr = await deriveSubscriberAddress(subscriber.id);
+      setSubscriberRegenAddress(db, subscriber.id, regenAddr);
+      console.log(`Regen address derived: subscriber=${subscriber.id} addr=${regenAddr}`);
+    } catch (err) {
+      console.error(`Failed to derive regen address for subscriber ${subscriber.id}:`, err instanceof Error ? err.message : err);
+    }
 
     // Send welcome email (fire-and-forget, don't block webhook response)
     if (email) {
@@ -1487,7 +1501,7 @@ function handleSubscriptionDeleted(db: Database.Database, sub: Stripe.Subscripti
   }
 }
 
-function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice) {
+async function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice) {
   try {
     // In Stripe SDK v20+, subscription is nested under parent.subscription_details
     const subDetails = invoice.parent?.subscription_details;
@@ -1518,6 +1532,43 @@ function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice) {
     console.log(
       `Invoice paid: subscription=${subId} amount=$${(amountCents / 100).toFixed(2)} period=${updates.current_period_start ?? "?"} to ${updates.current_period_end ?? "?"}`
     );
+
+    // Trigger per-subscriber retirement (fire-and-forget, don't block webhook response)
+    if (amountCents > 0 && existing.status === "active") {
+      // Derive and store regen address if not yet set
+      if (!existing.regen_address) {
+        try {
+          const regenAddr = await deriveSubscriberAddress(existing.id);
+          setSubscriberRegenAddress(db, existing.id, regenAddr);
+        } catch (err) {
+          console.error(`Failed to derive regen address for subscriber ${existing.id}:`, err instanceof Error ? err.message : err);
+        }
+      }
+
+      // Execute retirement asynchronously
+      retireForSubscriber({
+        subscriberId: existing.id,
+        grossAmountCents: amountCents,
+        billingInterval: existing.billing_interval,
+      }).then((result) => {
+        if (result.status === "success" || result.status === "partial") {
+          // Accumulate burn budget for periodic execution
+          if (result.burnBudgetCents > 0) {
+            accumulateBurnBudget(db, result.burnBudgetCents);
+          }
+          console.log(
+            `Retirement completed: subscriber=${existing.id} credits=${result.totalCreditsRetired.toFixed(6)} ` +
+            `spent=$${(result.totalSpentCents / 100).toFixed(2)} status=${result.status}`
+          );
+        } else {
+          console.error(
+            `Retirement failed: subscriber=${existing.id} errors=${JSON.stringify(result.errors)}`
+          );
+        }
+      }).catch((err) => {
+        console.error(`Retirement error for subscriber ${existing.id}:`, err instanceof Error ? err.message : err);
+      });
+    }
   } catch (err) {
     console.error("Error handling invoice.paid:", err instanceof Error ? err.message : err);
   }
