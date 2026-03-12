@@ -39,7 +39,7 @@ import {
 import { betaBannerCSS, betaBannerHTML, betaBannerJS } from "./beta-banner.js";
 import { sendWelcomeEmail } from "../services/email.js";
 import { deriveSubscriberAddress } from "../services/subscriber-wallet.js";
-import { retireForSubscriber, accumulateBurnBudget } from "../services/retire-subscriber.js";
+import { retireForSubscriber, accumulateBurnBudget, calculateNetAfterStripe } from "../services/retire-subscriber.js";
 import { brandFonts, brandCSS, brandHeader, brandFooter } from "./brand.js";
 
 // 5-minute in-memory cache for network stats
@@ -1574,28 +1574,33 @@ async function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice)
       }
 
       if (existing.billing_interval === "yearly") {
-        // Yearly: divide into 12 monthly retirements.
-        // Execute month 1 immediately, schedule months 2-12.
-        const monthlyAmount = Math.floor(amountCents / 12);
-        const firstMonthAmount = amountCents - (monthlyAmount * 11); // remainder goes to first month
+        // Yearly: deduct Stripe fees ONCE on the full payment, then divide net by 12.
+        const netTotal = calculateNetAfterStripe(amountCents);
+        const monthlyNet = Math.floor(netTotal / 12);
+        const firstMonthNet = netTotal - (monthlyNet * 11); // remainder goes to first month
+        const monthlyGross = Math.floor(amountCents / 12);
+        const firstMonthGross = amountCents - (monthlyGross * 11);
 
-        // Schedule months 2-12
+        // Schedule months 2-12 (store gross for display, but net is pre-computed at execution)
         const now = new Date();
         for (let month = 1; month <= 11; month++) {
           const scheduledDate = new Date(now);
           scheduledDate.setMonth(scheduledDate.getMonth() + month);
           createScheduledRetirement(
-            db, existing.id, monthlyAmount,
+            db, existing.id, monthlyGross, monthlyNet,
             scheduledDate.toISOString().split("T")[0],
             "yearly"
           );
         }
-        console.log(`Scheduled 11 future retirements for yearly subscriber ${existing.id} ($${(monthlyAmount / 100).toFixed(2)}/mo)`);
+        console.log(
+          `Scheduled 11 future retirements for yearly subscriber ${existing.id} ` +
+          `(net $${(monthlyNet / 100).toFixed(2)}/mo from $${(amountCents / 100).toFixed(2)} yearly)`
+        );
 
-        // Execute first month immediately
-        executeRetirementAsync(db, existing.id, firstMonthAmount, existing.billing_interval);
+        // Execute first month immediately — pass precomputedNetCents to skip double fee deduction
+        executeRetirementAsync(db, existing.id, firstMonthGross, existing.billing_interval, firstMonthNet);
       } else {
-        // Monthly: execute immediately
+        // Monthly: execute immediately (Stripe fees deducted inside retireForSubscriber)
         executeRetirementAsync(db, existing.id, amountCents, existing.billing_interval);
       }
     }
@@ -1609,12 +1614,14 @@ function executeRetirementAsync(
   db: Database.Database,
   subscriberId: number,
   grossAmountCents: number,
-  billingInterval: "monthly" | "yearly"
+  billingInterval: "monthly" | "yearly",
+  precomputedNetCents?: number
 ): void {
   retireForSubscriber({
     subscriberId,
     grossAmountCents,
     billingInterval,
+    precomputedNetCents,
   }).then((result) => {
     if (result.status === "success" || result.status === "partial") {
       if (result.burnBudgetCents > 0) {
@@ -1652,6 +1659,7 @@ async function processScheduledRetirements(db: Database.Database): Promise<void>
         subscriberId: scheduled.subscriber_id,
         grossAmountCents: scheduled.gross_amount_cents,
         billingInterval: scheduled.billing_interval as "monthly" | "yearly",
+        precomputedNetCents: scheduled.net_amount_cents || undefined,
       });
 
       if (result.status === "success" || result.status === "partial") {

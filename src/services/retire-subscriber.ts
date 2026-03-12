@@ -67,10 +67,21 @@ export function calculateNetAfterStripe(grossCents: number): number {
  * Execute retirement for a single subscriber payment.
  * Called when Stripe confirms payment (invoice.paid webhook).
  */
+/**
+ * Execute retirement for a single subscriber payment.
+ *
+ * For monthly subscribers, called once per invoice with the full gross amount.
+ * For yearly subscribers, called 12 times with pre-computed monthly portions
+ * (Stripe fees deducted once upfront, then net divided by 12).
+ *
+ * When `precomputedNetCents` is provided, Stripe fee deduction is skipped
+ * (caller already handled it). This is used for yearly monthly portions.
+ */
 export async function retireForSubscriber(options: {
   subscriberId: number;
   grossAmountCents: number;
   billingInterval: "monthly" | "yearly";
+  precomputedNetCents?: number;
   dbPath?: string;
   dryRun?: boolean;
 }): Promise<SubscriberRetirementResult> {
@@ -95,7 +106,8 @@ export async function retireForSubscriber(options: {
   }
 
   // 2. Calculate net and apply revenue split
-  const netAmountCents = calculateNetAfterStripe(grossAmountCents);
+  // If precomputedNetCents is provided (yearly monthly portions), skip Stripe fee deduction
+  const netAmountCents = options.precomputedNetCents ?? calculateNetAfterStripe(grossAmountCents);
   const split = billingInterval === "yearly" ? REVENUE_SPLIT_YEARLY : REVENUE_SPLIT_MONTHLY;
   const creditsBudgetCents = Math.floor(netAmountCents * split.credits);
   const burnBudgetCents = Math.floor(netAmountCents * split.burn);

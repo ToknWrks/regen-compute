@@ -214,6 +214,7 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subscriber_id INTEGER NOT NULL REFERENCES subscribers(id),
       gross_amount_cents INTEGER NOT NULL,
+      net_amount_cents INTEGER NOT NULL DEFAULT 0,
       billing_interval TEXT NOT NULL DEFAULT 'yearly',
       scheduled_date TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed')),
@@ -563,6 +564,7 @@ export interface ScheduledRetirement {
   id: number;
   subscriber_id: number;
   gross_amount_cents: number;
+  net_amount_cents: number;
   billing_interval: "monthly" | "yearly";
   scheduled_date: string;
   status: "pending" | "running" | "completed" | "failed";
@@ -576,12 +578,13 @@ export function createScheduledRetirement(
   db: Database.Database,
   subscriberId: number,
   grossAmountCents: number,
+  netAmountCents: number,
   scheduledDate: string,
   billingInterval: "monthly" | "yearly" = "yearly"
 ): ScheduledRetirement {
   const result = db.prepare(
-    "INSERT INTO scheduled_retirements (subscriber_id, gross_amount_cents, billing_interval, scheduled_date) VALUES (?, ?, ?, ?)"
-  ).run(subscriberId, grossAmountCents, billingInterval, scheduledDate);
+    "INSERT INTO scheduled_retirements (subscriber_id, gross_amount_cents, net_amount_cents, billing_interval, scheduled_date) VALUES (?, ?, ?, ?, ?)"
+  ).run(subscriberId, grossAmountCents, netAmountCents, billingInterval, scheduledDate);
   return db.prepare("SELECT * FROM scheduled_retirements WHERE id = ?").get(result.lastInsertRowid) as ScheduledRetirement;
 }
 
