@@ -2,13 +2,22 @@
  * Monthly pool retirement service.
  *
  * Aggregates subscription revenue, applies per-subscriber revenue split
- * (monthly: 75/20/5, yearly: 85/10/5 — credits/ops/burn), allocates credit budget across
- * credit types (50/30/20), executes on-chain retirements via MsgBuyDirect,
- * burns REGEN tokens, and records per-subscriber fractional attributions.
+ * (monthly: 75/20/5, yearly: 85/10/5 — credits/ops/burn), then distributes
+ * the credit budget equally across all eligible batches on the marketplace.
+ *
+ * Selection logic:
+ *   1. Fetch all sell orders from Regen Ledger (excluded classes filtered by ledger.ts)
+ *   2. Group by batch_denom to find unique batches with active sell orders
+ *   3. Exclude any additionally excluded batches (EXCLUDED_BATCHES)
+ *   4. Divide total credit budget equally by number of eligible batches
+ *   5. For each batch, buy as much as the per-batch budget allows (cheapest order first)
+ *
+ * Burns REGEN tokens and records per-subscriber fractional attributions.
  */
 
 import type Database from "better-sqlite3";
-import { selectBestOrders, type OrderSelection } from "./order-selector.js";
+import { listSellOrders, listCreditClasses, getAllowedDenoms } from "./ledger.js";
+import type { SellOrder } from "./ledger.js";
 import { initWallet, signAndBroadcast } from "./wallet.js";
 import { loadConfig } from "../config.js";
 import {
@@ -18,6 +27,8 @@ import {
   updatePoolRun,
   createAttribution,
   updateAttribution,
+  createPoolRunBatch,
+  updatePoolRunBatch,
   type Subscriber,
   type PoolRun,
 } from "../server/db.js";
@@ -33,12 +44,27 @@ export interface PoolRunResult {
   creditsBudgetCents: number;
   totalSpentCents: number;
   carryForwardCents: number;
+  /** Per-batch results (the primary detailed view) */
+  batches: BatchResult[];
+  /** Backward-compatible aggregates by credit type category */
   carbon: CreditTypeResult;
   biodiversity: CreditTypeResult;
   uss: CreditTypeResult;
   burn: BurnResult;
   opsAllocationCents: number;
   errors: string[];
+}
+
+export interface BatchResult {
+  batchDenom: string;
+  creditClassId: string;
+  creditTypeAbbrev: string;
+  budgetCents: number;
+  spentCents: number;
+  creditsRetired: number;
+  sellOrderId: string | null;
+  txHash: string | null;
+  error: string | null;
 }
 
 export interface CreditTypeResult {
@@ -66,19 +92,24 @@ const REVENUE_SPLIT_YEARLY = {
   operations: 0.10,
 } as const;
 
-/** Allocation percentages for each credit type (within the credits budget) */
-const ALLOCATIONS = {
-  carbon: 0.5,
-  biodiversity: 0.3,
-  uss: 0.2,
-} as const;
+/**
+ * Batches to exclude beyond the class-level exclusions in ledger.ts.
+ * Add specific batch denoms here to skip them during pool runs.
+ *
+ * Note: Credit classes C01 and C03 (Verra/VCS) are already excluded at the
+ * ledger.ts level — listSellOrders() filters them before they reach the pool.
+ * This set is for additional per-batch exclusions within otherwise eligible classes.
+ */
+const EXCLUDED_BATCHES = new Set<string>([
+  // Example: "C02-001-20210101-20211231-001"
+]);
 
-/** Credit type abbreviation filters for order-selector */
-const CREDIT_ABBREVS: Record<string, string[]> = {
-  carbon: ["C"],
-  biodiversity: ["BT"],
-  uss: ["MBS", "USS", "KSH"],
-};
+/** Map credit type abbreviations to the 3 backward-compatible categories */
+function creditTypeCategory(abbrev: string): "carbon" | "biodiversity" | "uss" {
+  if (abbrev === "C") return "carbon";
+  if (abbrev === "BT") return "biodiversity";
+  return "uss"; // MBS, USS, KSH, CFC, etc.
+}
 
 export async function executePoolRun(options: {
   dryRun: boolean;
@@ -99,6 +130,7 @@ export async function executePoolRun(options: {
       creditsBudgetCents: 0,
       totalSpentCents: 0,
       carryForwardCents: 0,
+      batches: [],
       carbon: emptyCreditResult(),
       biodiversity: emptyCreditResult(),
       uss: emptyCreditResult(),
@@ -111,7 +143,6 @@ export async function executePoolRun(options: {
   // 2. Sum contributions (applying per-subscriber revenue split by billing interval)
   const totalRevenueCents = subscribers.reduce((sum, s) => sum + s.amount_cents, 0);
 
-  // Compute blended split: each subscriber's contribution is split according to their billing interval
   let creditsBudgetCents = 0;
   let burnBudgetCents = 0;
   for (const s of subscribers) {
@@ -151,6 +182,7 @@ export async function executePoolRun(options: {
         creditsBudgetCents: 0,
         totalSpentCents: 0,
         carryForwardCents: totalRevenueCents,
+        batches: [],
         carbon: emptyCreditResult(),
         biodiversity: emptyCreditResult(),
         uss: emptyCreditResult(),
@@ -161,23 +193,244 @@ export async function executePoolRun(options: {
     }
   }
 
-  // 5b. Calculate budgets per credit type (within credits budget)
-  const carbonBudget = Math.floor(creditsBudgetCents * ALLOCATIONS.carbon);
-  const biodiversityBudget = Math.floor(creditsBudgetCents * ALLOCATIONS.biodiversity);
-  const ussBudget = creditsBudgetCents - carbonBudget - biodiversityBudget;
+  // 5. Fetch all eligible sell orders and group by batch
+  const [sellOrders, classes, allowedDenoms] = await Promise.all([
+    listSellOrders(),
+    listCreditClasses(),
+    getAllowedDenoms(),
+  ]);
 
-  // 6. Execute purchases for each credit type
-  const carbonResult = await purchaseCreditType(
-    "carbon", carbonBudget, walletAddress, options.dryRun, errors
-  );
-  const biodiversityResult = await purchaseCreditType(
-    "biodiversity", biodiversityBudget, walletAddress, options.dryRun, errors
-  );
-  const ussResult = await purchaseCreditType(
-    "uss", ussBudget, walletAddress, options.dryRun, errors
-  );
+  // Build class ID → credit type abbreviation map
+  const classTypeMap = new Map<string, string>();
+  for (const cls of classes) {
+    classTypeMap.set(cls.id, cls.credit_type_abbrev);
+  }
 
-  // 7. Execute REGEN burn
+  // Filter out expired orders and excluded batches
+  const now = new Date();
+  const eligibleOrders = sellOrders.filter((order) => {
+    if (EXCLUDED_BATCHES.has(order.batch_denom)) return false;
+    if (order.expiration) {
+      const expDate = new Date(order.expiration);
+      if (expDate <= now) return false;
+    }
+    if (parseFloat(order.quantity) <= 0) return false;
+    return true;
+  });
+
+  // Group by batch_denom
+  const batchOrdersMap = new Map<string, SellOrder[]>();
+  for (const order of eligibleOrders) {
+    const existing = batchOrdersMap.get(order.batch_denom) ?? [];
+    existing.push(order);
+    batchOrdersMap.set(order.batch_denom, existing);
+  }
+
+  const batchDenoms = Array.from(batchOrdersMap.keys()).sort();
+  const numBatches = batchDenoms.length;
+
+  if (numBatches === 0) {
+    errors.push("No eligible sell orders found on marketplace");
+    updatePoolRun(db, poolRun.id, {
+      status: "failed",
+      error_log: JSON.stringify(errors),
+      completed_at: new Date().toISOString(),
+    });
+    return {
+      poolRunId: poolRun.id,
+      status: "failed",
+      dryRun: options.dryRun,
+      subscriberCount: subscribers.length,
+      totalRevenueCents,
+      creditsBudgetCents,
+      totalSpentCents: 0,
+      carryForwardCents: creditsBudgetCents,
+      batches: [],
+      carbon: emptyCreditResult(),
+      biodiversity: emptyCreditResult(),
+      uss: emptyCreditResult(),
+      burn: emptyBurnResult(),
+      opsAllocationCents,
+      errors,
+    };
+  }
+
+  // 6. Divide budget equally across all eligible batches
+  const perBatchBudgetCents = Math.floor(creditsBudgetCents / numBatches);
+  const budgetRemainder = creditsBudgetCents - (perBatchBudgetCents * numBatches);
+
+  // Determine payment denom (prefer USDC, fall back to REGEN)
+  const usdcDenom = allowedDenoms.find(
+    (d) => d.display_denom === "USDC" || d.display_denom === "eUSDC" ||
+           d.bank_denom.includes("usdc") || d.bank_denom.includes("erc20")
+  );
+  const regenDenom = allowedDenoms.find(
+    (d) => d.display_denom === "REGEN" || d.bank_denom === "uregen"
+  );
+  const paymentDenom = usdcDenom ?? regenDenom ?? allowedDenoms[0];
+  const denomExponent = paymentDenom?.exponent ?? 6;
+  const denomBankDenom = paymentDenom?.bank_denom ?? "uregen";
+
+  // 7. Purchase from each batch
+  const batchResults: BatchResult[] = [];
+  const config = loadConfig();
+
+  for (let i = 0; i < batchDenoms.length; i++) {
+    const batchDenom = batchDenoms[i];
+    const orders = batchOrdersMap.get(batchDenom)!;
+    const classId = batchDenom.replace(/-\d.*$/, "");
+    const typeAbbrev = classTypeMap.get(classId) ?? "?";
+
+    // Give any remainder cents to the first batch
+    const thisBudgetCents = perBatchBudgetCents + (i === 0 ? budgetRemainder : 0);
+
+    const batchResult: BatchResult = {
+      batchDenom,
+      creditClassId: classId,
+      creditTypeAbbrev: typeAbbrev,
+      budgetCents: thisBudgetCents,
+      spentCents: 0,
+      creditsRetired: 0,
+      sellOrderId: null,
+      txHash: null,
+      error: null,
+    };
+
+    // Record in DB
+    const dbBatch = createPoolRunBatch(db, poolRun.id, batchDenom, classId, typeAbbrev, thisBudgetCents);
+
+    if (thisBudgetCents <= 0) {
+      batchResult.error = "No budget allocated";
+      updatePoolRunBatch(db, dbBatch.id, { error: batchResult.error });
+      batchResults.push(batchResult);
+      continue;
+    }
+
+    try {
+      // Filter orders for this batch that match our payment denom
+      let batchOrders = orders.filter((o) => o.ask_denom === denomBankDenom);
+      if (batchOrders.length === 0) {
+        // Fall back to any denom if no orders in preferred denom
+        batchOrders = orders;
+      }
+
+      // Sort by ask_amount ascending (cheapest first within this batch)
+      batchOrders.sort((a, b) => {
+        const aPrice = BigInt(a.ask_amount);
+        const bPrice = BigInt(b.ask_amount);
+        if (aPrice < bPrice) return -1;
+        if (aPrice > bPrice) return 1;
+        return 0;
+      });
+
+      // Convert budget to micro-units
+      const budgetMicro = BigInt(thisBudgetCents) * BigInt(10 ** Math.max(denomExponent - 2, 0));
+
+      // Greedy fill from cheapest order
+      let remainingBudget = budgetMicro;
+      let totalCredits = 0;
+      let totalCostMicro = 0n;
+      const selectedOrders: { order: SellOrder; quantity: string; costMicro: bigint }[] = [];
+
+      for (const order of batchOrders) {
+        if (remainingBudget <= 0n) break;
+        const available = parseFloat(order.quantity);
+        if (available <= 0) continue;
+
+        const pricePerCredit = BigInt(order.ask_amount);
+        if (pricePerCredit <= 0n) continue;
+
+        // Max credits we can afford from this order
+        const maxAffordable = Number(remainingBudget) / Number(pricePerCredit);
+        const take = Math.min(maxAffordable, available);
+        if (take < 0.000001) continue;
+
+        const costMicro = (pricePerCredit * BigInt(Math.ceil(take * 1_000_000))) / 1_000_000n;
+
+        selectedOrders.push({ order, quantity: take.toFixed(6), costMicro });
+        totalCredits += take;
+        totalCostMicro += costMicro;
+        remainingBudget -= costMicro;
+      }
+
+      if (selectedOrders.length === 0) {
+        batchResult.error = `No affordable orders for batch ${batchDenom}`;
+        errors.push(batchResult.error);
+        updatePoolRunBatch(db, dbBatch.id, { error: batchResult.error });
+        batchResults.push(batchResult);
+        continue;
+      }
+
+      batchResult.creditsRetired = totalCredits;
+      batchResult.spentCents = Number(totalCostMicro / BigInt(10 ** Math.max(denomExponent - 2, 0)));
+      batchResult.sellOrderId = selectedOrders.map((s) => s.order.id).join(",");
+
+      if (options.dryRun) {
+        updatePoolRunBatch(db, dbBatch.id, {
+          spent_cents: batchResult.spentCents,
+          credits_retired: batchResult.creditsRetired,
+          sell_order_id: batchResult.sellOrderId,
+        });
+        batchResults.push(batchResult);
+        continue;
+      }
+
+      // Build and broadcast MsgBuyDirect
+      const buyOrders = selectedOrders.map((s) => ({
+        sellOrderId: BigInt(s.order.id),
+        quantity: s.quantity,
+        bidPrice: {
+          denom: s.order.ask_denom,
+          amount: s.order.ask_amount,
+        },
+        disableAutoRetire: false,
+        retirementJurisdiction: config.defaultJurisdiction,
+        retirementReason: `Monthly pool retirement — Regenerative Compute`,
+      }));
+
+      const msg = {
+        typeUrl: "/regen.ecocredit.marketplace.v1.MsgBuyDirect",
+        value: {
+          buyer: walletAddress,
+          orders: buyOrders,
+        },
+      };
+
+      const txResult = await signAndBroadcast([msg]);
+
+      if (txResult.code !== 0) {
+        batchResult.error = `Tx failed (code ${txResult.code}): ${txResult.rawLog || "unknown"}`;
+        batchResult.creditsRetired = 0;
+        batchResult.spentCents = 0;
+        errors.push(`${batchDenom}: ${batchResult.error}`);
+        updatePoolRunBatch(db, dbBatch.id, { error: batchResult.error });
+      } else {
+        batchResult.txHash = txResult.transactionHash;
+        updatePoolRunBatch(db, dbBatch.id, {
+          spent_cents: batchResult.spentCents,
+          credits_retired: batchResult.creditsRetired,
+          sell_order_id: batchResult.sellOrderId,
+          tx_hash: batchResult.txHash,
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      batchResult.error = `${batchDenom}: ${msg}`;
+      batchResult.creditsRetired = 0;
+      batchResult.spentCents = 0;
+      errors.push(batchResult.error);
+      updatePoolRunBatch(db, dbBatch.id, { error: batchResult.error });
+    }
+
+    batchResults.push(batchResult);
+  }
+
+  // 8. Aggregate into backward-compatible category results
+  const carbon = aggregateByCategory(batchResults, "carbon");
+  const biodiversity = aggregateByCategory(batchResults, "biodiversity");
+  const uss = aggregateByCategory(batchResults, "uss");
+
+  // 9. Execute REGEN burn
   let burnResult: BurnResult;
   try {
     burnResult = await executeBurn({
@@ -197,13 +450,13 @@ export async function executePoolRun(options: {
     burnResult.error = msg;
   }
 
-  // 8. Calculate totals
-  const totalSpentCents = carbonResult.spentCents + biodiversityResult.spentCents + ussResult.spentCents;
+  // 10. Calculate totals
+  const totalSpentCents = batchResults.reduce((sum, b) => sum + b.spentCents, 0);
   const carryForwardCents = creditsBudgetCents - totalSpentCents;
 
-  // 9. Determine overall status
-  const anySuccess = carbonResult.creditsRetired > 0 || biodiversityResult.creditsRetired > 0 || ussResult.creditsRetired > 0;
-  const allSuccess = carbonResult.error === null && biodiversityResult.error === null && ussResult.error === null;
+  // 11. Determine overall status
+  const anySuccess = batchResults.some((b) => b.creditsRetired > 0);
+  const allSuccess = batchResults.every((b) => b.error === null);
   let status: "completed" | "partial" | "failed";
   if (options.dryRun) {
     status = "completed";
@@ -215,16 +468,16 @@ export async function executePoolRun(options: {
     status = "failed";
   }
 
-  // 10. Update pool_run record
+  // 12. Update pool_run record (backward-compatible columns)
   updatePoolRun(db, poolRun.id, {
     status,
     total_spent_cents: totalSpentCents,
-    carbon_credits_retired: carbonResult.creditsRetired,
-    carbon_tx_hash: carbonResult.txHash,
-    biodiversity_credits_retired: biodiversityResult.creditsRetired,
-    biodiversity_tx_hash: biodiversityResult.txHash,
-    uss_credits_retired: ussResult.creditsRetired,
-    uss_tx_hash: ussResult.txHash,
+    carbon_credits_retired: carbon.creditsRetired,
+    carbon_tx_hash: carbon.txHash,
+    biodiversity_credits_retired: biodiversity.creditsRetired,
+    biodiversity_tx_hash: biodiversity.txHash,
+    uss_credits_retired: uss.creditsRetired,
+    uss_tx_hash: uss.txHash,
     burn_allocation_cents: burnBudgetCents,
     burn_tx_hash: burnResult.txHash,
     ops_allocation_cents: opsAllocationCents,
@@ -233,8 +486,8 @@ export async function executePoolRun(options: {
     completed_at: new Date().toISOString(),
   });
 
-  // 11. Calculate and record per-subscriber attributions
-  recordAttributions(db, poolRun.id, subscribers, totalRevenueCents, carbonResult, biodiversityResult, ussResult);
+  // 13. Calculate and record per-subscriber attributions
+  recordAttributions(db, poolRun.id, subscribers, totalRevenueCents, carbon, biodiversity, uss);
 
   const result: PoolRunResult = {
     poolRunId: poolRun.id,
@@ -245,15 +498,16 @@ export async function executePoolRun(options: {
     creditsBudgetCents,
     totalSpentCents,
     carryForwardCents,
-    carbon: carbonResult,
-    biodiversity: biodiversityResult,
-    uss: ussResult,
+    batches: batchResults,
+    carbon,
+    biodiversity,
+    uss,
     burn: burnResult,
     opsAllocationCents,
     errors,
   };
 
-  // 12. Send monthly certificate emails (non-blocking)
+  // 14. Send monthly certificate emails (non-blocking)
   if (!options.dryRun && (status === "completed" || status === "partial")) {
     try {
       await sendMonthlyEmails(poolRun.id, subscribers, db, result);
@@ -266,125 +520,22 @@ export async function executePoolRun(options: {
   return result;
 }
 
-async function purchaseCreditType(
-  creditType: keyof typeof CREDIT_ABBREVS,
-  budgetCents: number,
-  walletAddress: string | undefined,
-  dryRun: boolean,
-  errors: string[]
-): Promise<CreditTypeResult> {
-  const result = emptyCreditResult();
-  result.budgetCents = budgetCents;
+/** Aggregate batch results into a backward-compatible category result */
+function aggregateByCategory(
+  batches: BatchResult[],
+  category: "carbon" | "biodiversity" | "uss"
+): CreditTypeResult {
+  const matching = batches.filter((b) => creditTypeCategory(b.creditTypeAbbrev) === category);
+  const txHashes = matching.map((b) => b.txHash).filter(Boolean) as string[];
+  const errs = matching.map((b) => b.error).filter(Boolean) as string[];
 
-  if (budgetCents <= 0) {
-    return result;
-  }
-
-  try {
-    // Estimate quantity from budget: first find cheapest sell orders to get pricing
-    // Start with a large quantity estimate, then trim based on actual cost
-    const abbrevs = CREDIT_ABBREVS[creditType];
-    const probe = await selectBestOrders(undefined, 1000, undefined, abbrevs);
-
-    if (probe.orders.length === 0) {
-      result.error = `No sell orders available for ${creditType}`;
-      errors.push(result.error);
-      return result;
-    }
-
-    // Calculate how many credits we can afford within budget
-    // Budget is in cents, cost is in micro-units of payment denom
-    // Convert budget cents to micro-units: cents * 10^(exponent-2)
-    const budgetMicro = BigInt(budgetCents) * BigInt(10 ** Math.max(probe.exponent - 2, 0));
-
-    // Find cheapest price per credit to estimate max quantity
-    const cheapestAsk = BigInt(probe.orders[0].askAmount);
-    if (cheapestAsk <= 0n) {
-      result.error = `Invalid ask amount for ${creditType}`;
-      errors.push(result.error);
-      return result;
-    }
-
-    // Estimate quantity we can afford (conservative: use cheapest price)
-    const estimatedQuantity = Number(budgetMicro / cheapestAsk);
-    if (estimatedQuantity < 0.000001) {
-      result.error = `Budget too small for any ${creditType} credits ($${(budgetCents / 100).toFixed(2)})`;
-      errors.push(result.error);
-      return result;
-    }
-
-    // Now select actual orders up to our affordable quantity
-    const selection = await selectBestOrders(undefined, estimatedQuantity, undefined, abbrevs);
-
-    if (selection.orders.length === 0) {
-      result.error = `No orders filled for ${creditType}`;
-      errors.push(result.error);
-      return result;
-    }
-
-    // Verify total cost is within budget
-    let finalSelection = selection;
-    if (selection.totalCostMicro > budgetMicro) {
-      // Trim to fit budget — reduce quantity
-      const ratio = Number(budgetMicro) / Number(selection.totalCostMicro);
-      const adjustedQuantity = Math.max(estimatedQuantity * ratio * 0.99, 0.000001); // 1% safety margin
-      finalSelection = await selectBestOrders(undefined, adjustedQuantity, undefined, abbrevs);
-      if (finalSelection.orders.length === 0 || finalSelection.totalCostMicro > budgetMicro) {
-        result.error = `Cannot fit ${creditType} purchase within budget after adjustment`;
-        errors.push(result.error);
-        return result;
-      }
-    }
-
-    result.creditsRetired = parseFloat(finalSelection.totalQuantity);
-    result.spentCents = Number(finalSelection.totalCostMicro / BigInt(10 ** Math.max(finalSelection.exponent - 2, 0)));
-
-    if (dryRun) {
-      return result;
-    }
-
-    // Build and broadcast MsgBuyDirect
-    const config = loadConfig();
-    const buyOrders = finalSelection.orders.map((order) => ({
-      sellOrderId: BigInt(order.sellOrderId),
-      quantity: order.quantity,
-      bidPrice: {
-        denom: order.askDenom,
-        amount: order.askAmount,
-      },
-      disableAutoRetire: false,
-      retirementJurisdiction: config.defaultJurisdiction,
-      retirementReason: `Monthly pool retirement — Regenerative Compute`,
-    }));
-
-    const msg = {
-      typeUrl: "/regen.ecocredit.marketplace.v1.MsgBuyDirect",
-      value: {
-        buyer: walletAddress,
-        orders: buyOrders,
-      },
-    };
-
-    const txResult = await signAndBroadcast([msg]);
-
-    if (txResult.code !== 0) {
-      result.error = `Transaction failed (code ${txResult.code}): ${txResult.rawLog || "unknown"}`;
-      result.creditsRetired = 0;
-      result.spentCents = 0;
-      errors.push(result.error);
-      return result;
-    }
-
-    result.txHash = txResult.transactionHash;
-    return result;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    result.error = `${creditType} purchase failed: ${msg}`;
-    result.creditsRetired = 0;
-    result.spentCents = 0;
-    errors.push(result.error);
-    return result;
-  }
+  return {
+    budgetCents: matching.reduce((sum, b) => sum + b.budgetCents, 0),
+    spentCents: matching.reduce((sum, b) => sum + b.spentCents, 0),
+    creditsRetired: matching.reduce((sum, b) => sum + b.creditsRetired, 0),
+    txHash: txHashes.length > 0 ? txHashes.join(",") : null,
+    error: errs.length > 0 ? errs.join("; ") : null,
+  };
 }
 
 function recordAttributions(
@@ -448,29 +599,27 @@ export function formatPoolRunResult(result: PoolRunResult): string {
     `Credits Spent: $${(result.totalSpentCents / 100).toFixed(2)}`,
     `Carry Forward: $${(result.carryForwardCents / 100).toFixed(2)}`,
     ``,
-    `--- Carbon (50% of credits) ---`,
-    `  Budget: $${(result.carbon.budgetCents / 100).toFixed(2)}`,
-    `  Spent: $${(result.carbon.spentCents / 100).toFixed(2)}`,
-    `  Credits Retired: ${result.carbon.creditsRetired.toFixed(6)}`,
-    ...(result.carbon.txHash ? [`  Tx: ${result.carbon.txHash}`] : []),
-    ...(result.carbon.error ? [`  Error: ${result.carbon.error}`] : []),
+    `--- Per-Batch Breakdown (${result.batches.length} batches, equal $ allocation) ---`,
+  ];
+
+  for (const batch of result.batches) {
+    const status = batch.error ? `ERROR: ${batch.error}` : `${batch.creditsRetired.toFixed(6)} credits`;
+    lines.push(
+      `  ${batch.batchDenom} [${batch.creditTypeAbbrev}]`,
+      `    Budget: $${(batch.budgetCents / 100).toFixed(2)} | Spent: $${(batch.spentCents / 100).toFixed(2)} | ${status}`,
+      ...(batch.txHash ? [`    Tx: ${batch.txHash}`] : []),
+    );
+  }
+
+  lines.push(
     ``,
-    `--- Biodiversity (30% of credits) ---`,
-    `  Budget: $${(result.biodiversity.budgetCents / 100).toFixed(2)}`,
-    `  Spent: $${(result.biodiversity.spentCents / 100).toFixed(2)}`,
-    `  Credits Retired: ${result.biodiversity.creditsRetired.toFixed(6)}`,
-    ...(result.biodiversity.txHash ? [`  Tx: ${result.biodiversity.txHash}`] : []),
-    ...(result.biodiversity.error ? [`  Error: ${result.biodiversity.error}`] : []),
-    ``,
-    `--- USS/Marine (20% of credits) ---`,
-    `  Budget: $${(result.uss.budgetCents / 100).toFixed(2)}`,
-    `  Spent: $${(result.uss.spentCents / 100).toFixed(2)}`,
-    `  Credits Retired: ${result.uss.creditsRetired.toFixed(6)}`,
-    ...(result.uss.txHash ? [`  Tx: ${result.uss.txHash}`] : []),
-    ...(result.uss.error ? [`  Error: ${result.uss.error}`] : []),
+    `--- Aggregated by Type ---`,
+    `  Carbon (C): ${result.carbon.creditsRetired.toFixed(6)} credits ($${(result.carbon.spentCents / 100).toFixed(2)})`,
+    `  Biodiversity (BT): ${result.biodiversity.creditsRetired.toFixed(6)} credits ($${(result.biodiversity.spentCents / 100).toFixed(2)})`,
+    `  Other (MBS/USS/KSH/CFC): ${result.uss.creditsRetired.toFixed(6)} credits ($${(result.uss.spentCents / 100).toFixed(2)})`,
     ``,
     formatBurnResult(result.burn),
-  ];
+  );
 
   if (result.errors.length > 0) {
     lines.push(``, `--- Errors ---`);

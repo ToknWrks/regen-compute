@@ -126,6 +126,23 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_burns_pool_run ON burns(pool_run_id);
     CREATE INDEX IF NOT EXISTS idx_burns_status ON burns(status);
 
+    CREATE TABLE IF NOT EXISTS pool_run_batches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pool_run_id INTEGER NOT NULL REFERENCES pool_runs(id),
+      batch_denom TEXT NOT NULL,
+      credit_class_id TEXT NOT NULL,
+      credit_type_abbrev TEXT NOT NULL,
+      budget_cents INTEGER NOT NULL DEFAULT 0,
+      spent_cents INTEGER NOT NULL DEFAULT 0,
+      credits_retired REAL NOT NULL DEFAULT 0,
+      sell_order_id TEXT,
+      tx_hash TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pool_run_batches_run ON pool_run_batches(pool_run_id);
+
     CREATE TABLE IF NOT EXISTS api_usage (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -531,6 +548,59 @@ export function getAttributionsBySubscriber(db: Database.Database, subscriberId:
   return db.prepare(
     "SELECT * FROM attributions WHERE subscriber_id = ? ORDER BY created_at DESC"
   ).all(subscriberId) as Attribution[];
+}
+
+// --- Pool run batch helpers ---
+
+export interface PoolRunBatch {
+  id: number;
+  pool_run_id: number;
+  batch_denom: string;
+  credit_class_id: string;
+  credit_type_abbrev: string;
+  budget_cents: number;
+  spent_cents: number;
+  credits_retired: number;
+  sell_order_id: string | null;
+  tx_hash: string | null;
+  error: string | null;
+  created_at: string;
+}
+
+export function createPoolRunBatch(
+  db: Database.Database,
+  poolRunId: number,
+  batchDenom: string,
+  creditClassId: string,
+  creditTypeAbbrev: string,
+  budgetCents: number
+): PoolRunBatch {
+  const result = db.prepare(
+    "INSERT INTO pool_run_batches (pool_run_id, batch_denom, credit_class_id, credit_type_abbrev, budget_cents) VALUES (?, ?, ?, ?, ?)"
+  ).run(poolRunId, batchDenom, creditClassId, creditTypeAbbrev, budgetCents);
+  return db.prepare("SELECT * FROM pool_run_batches WHERE id = ?").get(result.lastInsertRowid) as PoolRunBatch;
+}
+
+export function updatePoolRunBatch(
+  db: Database.Database,
+  id: number,
+  updates: Partial<Pick<PoolRunBatch, "spent_cents" | "credits_retired" | "sell_order_id" | "tx_hash" | "error">>
+): void {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  for (const [key, val] of Object.entries(updates)) {
+    if (val !== undefined) {
+      sets.push(`${key} = ?`);
+      values.push(val);
+    }
+  }
+  if (sets.length === 0) return;
+  values.push(id);
+  db.prepare(`UPDATE pool_run_batches SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+}
+
+export function getPoolRunBatches(db: Database.Database, poolRunId: number): PoolRunBatch[] {
+  return db.prepare("SELECT * FROM pool_run_batches WHERE pool_run_id = ? ORDER BY credit_type_abbrev, batch_denom").all(poolRunId) as PoolRunBatch[];
 }
 
 // --- Email helpers ---
