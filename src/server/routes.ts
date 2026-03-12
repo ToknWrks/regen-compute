@@ -31,6 +31,10 @@ import {
   createReferralReward,
   getReferralCount,
   setSubscriberRegenAddress,
+  createScheduledRetirement,
+  getDueScheduledRetirements,
+  updateScheduledRetirement,
+  cancelScheduledRetirements,
 } from "./db.js";
 import { betaBannerCSS, betaBannerHTML, betaBannerJS } from "./beta-banner.js";
 import { sendWelcomeEmail } from "../services/email.js";
@@ -1345,6 +1349,20 @@ ${betaBannerJS()}
 <tbody>${tableRows || "<tr><td colspan=6>No feedback yet</td></tr>"}</tbody></table></body></html>`);
   });
 
+  // Start scheduled retirement processor — checks every hour for due yearly retirements
+  const SCHEDULED_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+  setInterval(() => {
+    processScheduledRetirements(db).catch((err) => {
+      console.error("Scheduled retirement processor error:", err instanceof Error ? err.message : err);
+    });
+  }, SCHEDULED_CHECK_INTERVAL_MS);
+  // Also run once on startup (after a short delay to let the server finish initializing)
+  setTimeout(() => {
+    processScheduledRetirements(db).catch((err) => {
+      console.error("Scheduled retirement processor error (startup):", err instanceof Error ? err.message : err);
+    });
+  }, 10_000);
+
   return router;
 }
 
@@ -1494,7 +1512,17 @@ function handleSubscriptionUpdated(db: Database.Database, sub: Stripe.Subscripti
 function handleSubscriptionDeleted(db: Database.Database, sub: Stripe.Subscription) {
   try {
     const stripeSubId = sub.id;
+    const existing = getSubscriberByStripeId(db, stripeSubId);
     updateSubscriberStatus(db, stripeSubId, "cancelled");
+
+    // Cancel any pending scheduled retirements for yearly subscribers
+    if (existing) {
+      const cancelled = cancelScheduledRetirements(db, existing.id);
+      if (cancelled > 0) {
+        console.log(`Cancelled ${cancelled} scheduled retirement(s) for subscriber ${existing.id}`);
+      }
+    }
+
     console.log(`Subscription cancelled: ${stripeSubId}`);
   } catch (err) {
     console.error("Error handling subscription.deleted:", err instanceof Error ? err.message : err);
@@ -1545,31 +1573,118 @@ async function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice)
         }
       }
 
-      // Execute retirement asynchronously
-      retireForSubscriber({
-        subscriberId: existing.id,
-        grossAmountCents: amountCents,
-        billingInterval: existing.billing_interval,
-      }).then((result) => {
-        if (result.status === "success" || result.status === "partial") {
-          // Accumulate burn budget for periodic execution
-          if (result.burnBudgetCents > 0) {
-            accumulateBurnBudget(db, result.burnBudgetCents);
-          }
-          console.log(
-            `Retirement completed: subscriber=${existing.id} credits=${result.totalCreditsRetired.toFixed(6)} ` +
-            `spent=$${(result.totalSpentCents / 100).toFixed(2)} status=${result.status}`
-          );
-        } else {
-          console.error(
-            `Retirement failed: subscriber=${existing.id} errors=${JSON.stringify(result.errors)}`
+      if (existing.billing_interval === "yearly") {
+        // Yearly: divide into 12 monthly retirements.
+        // Execute month 1 immediately, schedule months 2-12.
+        const monthlyAmount = Math.floor(amountCents / 12);
+        const firstMonthAmount = amountCents - (monthlyAmount * 11); // remainder goes to first month
+
+        // Schedule months 2-12
+        const now = new Date();
+        for (let month = 1; month <= 11; month++) {
+          const scheduledDate = new Date(now);
+          scheduledDate.setMonth(scheduledDate.getMonth() + month);
+          createScheduledRetirement(
+            db, existing.id, monthlyAmount,
+            scheduledDate.toISOString().split("T")[0],
+            "yearly"
           );
         }
-      }).catch((err) => {
-        console.error(`Retirement error for subscriber ${existing.id}:`, err instanceof Error ? err.message : err);
-      });
+        console.log(`Scheduled 11 future retirements for yearly subscriber ${existing.id} ($${(monthlyAmount / 100).toFixed(2)}/mo)`);
+
+        // Execute first month immediately
+        executeRetirementAsync(db, existing.id, firstMonthAmount, existing.billing_interval);
+      } else {
+        // Monthly: execute immediately
+        executeRetirementAsync(db, existing.id, amountCents, existing.billing_interval);
+      }
     }
   } catch (err) {
     console.error("Error handling invoice.paid:", err instanceof Error ? err.message : err);
+  }
+}
+
+/** Fire-and-forget retirement execution with logging */
+function executeRetirementAsync(
+  db: Database.Database,
+  subscriberId: number,
+  grossAmountCents: number,
+  billingInterval: "monthly" | "yearly"
+): void {
+  retireForSubscriber({
+    subscriberId,
+    grossAmountCents,
+    billingInterval,
+  }).then((result) => {
+    if (result.status === "success" || result.status === "partial") {
+      if (result.burnBudgetCents > 0) {
+        accumulateBurnBudget(db, result.burnBudgetCents);
+      }
+      console.log(
+        `Retirement completed: subscriber=${subscriberId} credits=${result.totalCreditsRetired.toFixed(6)} ` +
+        `spent=$${(result.totalSpentCents / 100).toFixed(2)} status=${result.status}`
+      );
+    } else {
+      console.error(
+        `Retirement failed: subscriber=${subscriberId} errors=${JSON.stringify(result.errors)}`
+      );
+    }
+  }).catch((err) => {
+    console.error(`Retirement error for subscriber ${subscriberId}:`, err instanceof Error ? err.message : err);
+  });
+}
+
+/**
+ * Process due scheduled retirements (for yearly subscribers).
+ * Should be called periodically (e.g. daily via cron or setInterval).
+ */
+async function processScheduledRetirements(db: Database.Database): Promise<void> {
+  const due = getDueScheduledRetirements(db);
+  if (due.length === 0) return;
+
+  console.log(`Processing ${due.length} scheduled retirement(s)...`);
+
+  for (const scheduled of due) {
+    updateScheduledRetirement(db, scheduled.id, { status: "running" });
+
+    try {
+      const result = await retireForSubscriber({
+        subscriberId: scheduled.subscriber_id,
+        grossAmountCents: scheduled.gross_amount_cents,
+        billingInterval: scheduled.billing_interval as "monthly" | "yearly",
+      });
+
+      if (result.status === "success" || result.status === "partial") {
+        if (result.burnBudgetCents > 0) {
+          accumulateBurnBudget(db, result.burnBudgetCents);
+        }
+        updateScheduledRetirement(db, scheduled.id, {
+          status: "completed",
+          executed_at: new Date().toISOString(),
+        });
+        console.log(
+          `Scheduled retirement completed: id=${scheduled.id} subscriber=${scheduled.subscriber_id} ` +
+          `credits=${result.totalCreditsRetired.toFixed(6)}`
+        );
+      } else {
+        updateScheduledRetirement(db, scheduled.id, {
+          status: "failed",
+          error: result.errors.join("; "),
+          executed_at: new Date().toISOString(),
+        });
+        console.error(
+          `Scheduled retirement failed: id=${scheduled.id} subscriber=${scheduled.subscriber_id} ` +
+          `errors=${JSON.stringify(result.errors)}`
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      updateScheduledRetirement(db, scheduled.id, {
+        status: "failed",
+        error: msg,
+        executed_at: new Date().toISOString(),
+      });
+      console.error(`Scheduled retirement error: id=${scheduled.id} ${msg}`);
+    }
   }
 }

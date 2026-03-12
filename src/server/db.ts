@@ -210,6 +210,23 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_sub_ret_batches_retirement ON subscriber_retirement_batches(retirement_id);
 
+    CREATE TABLE IF NOT EXISTS scheduled_retirements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subscriber_id INTEGER NOT NULL REFERENCES subscribers(id),
+      gross_amount_cents INTEGER NOT NULL,
+      billing_interval TEXT NOT NULL DEFAULT 'yearly',
+      scheduled_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+      retirement_id INTEGER REFERENCES subscriber_retirements(id),
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      executed_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scheduled_retirements_subscriber ON scheduled_retirements(subscriber_id);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_retirements_status ON scheduled_retirements(status);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_retirements_date ON scheduled_retirements(scheduled_date);
+
     CREATE TABLE IF NOT EXISTS burn_accumulator (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       amount_cents INTEGER NOT NULL,
@@ -538,6 +555,68 @@ export function getCumulativeSubscriberRetirements(db: Database.Database, subscr
     WHERE subscriber_id = ?
   `).get(subscriberId) as { total_credits_retired: number; total_spent_cents: number; total_gross_cents: number; retirement_count: number } | undefined;
   return row ?? { total_credits_retired: 0, total_spent_cents: 0, total_gross_cents: 0, retirement_count: 0 };
+}
+
+// --- Scheduled retirement types and helpers ---
+
+export interface ScheduledRetirement {
+  id: number;
+  subscriber_id: number;
+  gross_amount_cents: number;
+  billing_interval: "monthly" | "yearly";
+  scheduled_date: string;
+  status: "pending" | "running" | "completed" | "failed";
+  retirement_id: number | null;
+  error: string | null;
+  created_at: string;
+  executed_at: string | null;
+}
+
+export function createScheduledRetirement(
+  db: Database.Database,
+  subscriberId: number,
+  grossAmountCents: number,
+  scheduledDate: string,
+  billingInterval: "monthly" | "yearly" = "yearly"
+): ScheduledRetirement {
+  const result = db.prepare(
+    "INSERT INTO scheduled_retirements (subscriber_id, gross_amount_cents, billing_interval, scheduled_date) VALUES (?, ?, ?, ?)"
+  ).run(subscriberId, grossAmountCents, billingInterval, scheduledDate);
+  return db.prepare("SELECT * FROM scheduled_retirements WHERE id = ?").get(result.lastInsertRowid) as ScheduledRetirement;
+}
+
+export function getDueScheduledRetirements(db: Database.Database): ScheduledRetirement[] {
+  return db.prepare(
+    "SELECT sr.* FROM scheduled_retirements sr JOIN subscribers s ON sr.subscriber_id = s.id WHERE sr.status = 'pending' AND sr.scheduled_date <= datetime('now') AND s.status = 'active' ORDER BY sr.scheduled_date ASC"
+  ).all() as ScheduledRetirement[];
+}
+
+export function updateScheduledRetirement(
+  db: Database.Database,
+  id: number,
+  updates: Partial<Pick<ScheduledRetirement, "status" | "retirement_id" | "error" | "executed_at">>
+): void {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  for (const [key, val] of Object.entries(updates)) {
+    if (val !== undefined) { sets.push(`${key} = ?`); values.push(val); }
+  }
+  if (sets.length === 0) return;
+  values.push(id);
+  db.prepare(`UPDATE scheduled_retirements SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+}
+
+export function cancelScheduledRetirements(db: Database.Database, subscriberId: number): number {
+  const result = db.prepare(
+    "UPDATE scheduled_retirements SET status = 'failed', error = 'subscription_cancelled' WHERE subscriber_id = ? AND status = 'pending'"
+  ).run(subscriberId);
+  return result.changes;
+}
+
+export function getScheduledRetirementsBySubscriber(db: Database.Database, subscriberId: number): ScheduledRetirement[] {
+  return db.prepare(
+    "SELECT * FROM scheduled_retirements WHERE subscriber_id = ? ORDER BY scheduled_date ASC"
+  ).all(subscriberId) as ScheduledRetirement[];
 }
 
 // --- Pool run types and helpers ---
