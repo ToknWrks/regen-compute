@@ -234,6 +234,7 @@ function renderDashboardPage(opts: {
   badges: Badge[];
   manageUrl: string;
   amountCents: number;
+  billingInterval: "monthly" | "yearly";
   baseUrl: string;
   nextRetirementDate: string | null;
   transactions: Transaction[];
@@ -247,10 +248,11 @@ function renderDashboardPage(opts: {
 }): string {
   const {
     email, plan, memberSince, cumulative, monthly, badges, manageUrl,
-    amountCents, baseUrl, nextRetirementDate, transactions, communityStats,
+    amountCents, billingInterval, baseUrl, nextRetirementDate, transactions, communityStats,
     regenAddress, projectCards, communityGoal, communityTotalCredits, communitySubscriberCount,
     batchDenomMap,
   } = opts;
+  const isYearly = billingInterval === "yearly";
 
   const planName = displayPlanName(plan);
   const totalCredits = cumulative.total_carbon + cumulative.total_biodiversity + cumulative.total_uss;
@@ -602,7 +604,8 @@ function renderDashboardPage(opts: {
       <div style="background:var(--regen-white);border:1px solid var(--regen-gray-200);border-radius:var(--regen-radius);padding:20px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
         <div>
           <span style="font-size:14px;font-weight:700;color:var(--regen-navy);">${escapeHtml(planName)} Plan</span>
-          <span style="font-size:13px;color:var(--regen-gray-500);margin-left:4px;">$${(amountCents / 100).toFixed(2)}/mo</span>
+          <span style="font-size:13px;color:var(--regen-gray-500);margin-left:4px;">$${(amountCents / 100).toFixed(2)}/${isYearly ? "year" : "mo"}</span>
+          ${isYearly ? `<div style="font-size:12px;color:var(--regen-gray-500);margin-top:4px;">Your annual subscription funds 12 monthly retirements &mdash; credits are retired on your behalf each month throughout the year.</div>` : ""}
         </div>
         <a class="regen-btn regen-btn--outline regen-btn--sm" href="${escapeHtml(manageUrl)}">Manage</a>
       </div>
@@ -895,6 +898,7 @@ export function createDashboardRoutes(
       badges,
       manageUrl,
       amountCents: subscriber.amount_cents,
+      billingInterval: (subscriber.billing_interval === "yearly" ? "yearly" : "monthly") as "monthly" | "yearly",
       baseUrl,
       nextRetirementDate,
       transactions,
