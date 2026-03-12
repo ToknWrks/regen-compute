@@ -945,13 +945,17 @@ ${betaBannerJS()}
         console.log(`New user created: ${user.api_key} (${email})`);
       }
 
-      // Credit balance
+      // Credit balance — detect subscription vs one-time
+      const isSubscription = session.mode === "subscription";
       creditBalance(
         db,
         user.id,
         amountCents,
         session.id,
-        `Stripe top-up: $${(amountCents / 100).toFixed(2)}`
+        isSubscription
+          ? `Subscription payment: $${(amountCents / 100).toFixed(2)}`
+          : `One-time boost: $${(amountCents / 100).toFixed(2)}`,
+        isSubscription ? "subscription" : "topup"
       );
 
       console.log(

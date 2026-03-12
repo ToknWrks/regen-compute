@@ -561,9 +561,8 @@ function renderDashboardPage(opts: {
           <tbody>
             ${transactions.map(t => {
               const date = new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-              const isBoost = t.type === "topup";
-              const typeLabel = isBoost ? "One-time boost" : "Monthly subscription";
-              const typeColor = isBoost ? "var(--regen-green)" : "var(--regen-teal)";
+              const typeLabel = t.type === "subscription" ? "Subscription" : t.type === "topup" ? "One-time boost" : "Retirement";
+              const typeColor = t.type === "subscription" ? "var(--regen-teal)" : t.type === "topup" ? "var(--regen-green)" : "var(--regen-navy)";
               const hasRetirementTx = !!t.retirement_tx_hash;
               const statusLabel = hasRetirementTx ? "Retired" : "Paid";
               const statusBg = hasRetirementTx ? "#f0f7f2" : "#eff6ff";

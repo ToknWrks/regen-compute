@@ -41,7 +41,7 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
     CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id),
-      type TEXT NOT NULL CHECK(type IN ('topup', 'retirement')),
+      type TEXT NOT NULL CHECK(type IN ('topup', 'subscription', 'retirement')),
       amount_cents INTEGER NOT NULL,
       description TEXT,
       stripe_session_id TEXT,
@@ -392,6 +392,35 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
     console.log(`Migration: backfilled ${usersWithoutCodes.length} referral codes`);
   }
 
+  // Migration: add 'subscription' to transactions type CHECK constraint
+  // SQLite CHECK constraints can't be altered, so recreate the table if needed
+  const tableInfo = _db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'").get() as { sql: string } | undefined;
+  if (tableInfo && !tableInfo.sql.includes("subscription")) {
+    _db.exec(`
+      CREATE TABLE transactions_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        type TEXT NOT NULL CHECK(type IN ('topup', 'subscription', 'retirement')),
+        amount_cents INTEGER NOT NULL,
+        description TEXT,
+        stripe_session_id TEXT,
+        retirement_tx_hash TEXT,
+        credit_class TEXT,
+        credits_retired REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO transactions_new SELECT * FROM transactions;
+      DROP TABLE transactions;
+      ALTER TABLE transactions_new RENAME TO transactions;
+      CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
+    `);
+    // Reclassify existing topup rows that came from subscriptions
+    _db.prepare(
+      "UPDATE transactions SET type = 'subscription', description = REPLACE(description, 'Stripe top-up', 'Subscription payment') WHERE type = 'topup' AND description LIKE 'Stripe top-up%'"
+    ).run();
+    console.log("Migration: added 'subscription' type to transactions, reclassified existing rows");
+  }
+
   return _db;
 }
 
@@ -419,7 +448,7 @@ export interface User {
 export interface Transaction {
   id: number;
   user_id: number;
-  type: "topup" | "retirement";
+  type: "topup" | "subscription" | "retirement";
   amount_cents: number;
   description: string | null;
   stripe_session_id: string | null;
@@ -469,7 +498,8 @@ export function creditBalance(
   userId: number,
   amountCents: number,
   stripeSessionId: string,
-  description: string
+  description: string,
+  type: "topup" | "subscription" = "topup"
 ): void {
   const txn = db.transaction(() => {
     db.prepare(
@@ -477,8 +507,8 @@ export function creditBalance(
     ).run(amountCents, userId);
 
     db.prepare(
-      "INSERT INTO transactions (user_id, type, amount_cents, description, stripe_session_id) VALUES (?, 'topup', ?, ?, ?)"
-    ).run(userId, amountCents, description, stripeSessionId);
+      "INSERT INTO transactions (user_id, type, amount_cents, description, stripe_session_id) VALUES (?, ?, ?, ?, ?)"
+    ).run(userId, type, amountCents, description, stripeSessionId);
   });
   txn();
 }
