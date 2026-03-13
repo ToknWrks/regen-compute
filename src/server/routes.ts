@@ -659,14 +659,16 @@ Then estimate my AI usage footprint and recommend a tier ($1.25, $2.50, or $5/mo
     }
 
     function switchToYearly() {
+      var tier = pendingTier;
       closeNudge();
       setInterval('yearly');
-      doSubscribe(pendingTier, 'yearly');
+      doSubscribe(tier, 'yearly');
     }
 
     function continueMonthly() {
+      var tier = pendingTier;
       closeNudge();
-      doSubscribe(pendingTier, 'monthly');
+      doSubscribe(tier, 'monthly');
     }
 
     function closeNudge() {
@@ -709,14 +711,10 @@ ${betaBannerJS()}
    */
   router.post("/subscribe", async (req: Request, res: Response) => {
     try {
-      const rawBody = req.body;
-      console.log("[subscribe] raw body type:", typeof rawBody, "value:", JSON.stringify(rawBody));
-      const body = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
+      const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
       const { tier, interval, email, referral_code } = body ?? {};
-      console.log("[subscribe] parsed tier:", JSON.stringify(tier), "interval:", JSON.stringify(interval));
 
       if (!tier || !["dabbler", "builder", "agent"].includes(tier)) {
-        console.log("[subscribe] REJECTED tier:", JSON.stringify(tier));
         res.status(400).json({ error: 'tier must be "dabbler", "builder", or "agent"' });
         return;
       }
