@@ -26,6 +26,9 @@ export function createAboutRoutes(baseUrl: string): Router {
   <meta property="og:type" content="website">
   <meta property="og:url" content="${baseUrl}/about">
   <meta property="og:image" content="${baseUrl}/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:type" content="image/jpeg">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="About — Regenerative Compute">
   <meta name="twitter:description" content="Meet the people building ecological accountability for AI — from permaculture farms to the blockchain.">

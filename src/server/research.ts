@@ -27,6 +27,9 @@ export function createResearchRoutes(baseUrl: string): Router {
   <meta property="og:type" content="article">
   <meta property="og:url" content="${baseUrl}/research">
   <meta property="og:image" content="${baseUrl}/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:type" content="image/jpeg">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="AI Emissions Research — Regenerative Compute">
   <meta name="twitter:description" content="How much energy does one person's AI usage consume? A transparent review with citations.">
