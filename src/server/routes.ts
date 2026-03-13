@@ -1089,51 +1089,6 @@ ${betaBannerJS()}
 
     <div class="regen-card" style="margin-top:24px;">
       <div class="regen-card__body">
-        <h2 style="color:var(--regen-navy);margin:0 0 8px;font-size:18px;font-weight:700;">The credits your subscription retires</h2>
-        <p style="color:var(--regen-gray-500);font-size:14px;margin:0 0 16px;">Your contribution retires verified ecocredits drawn from a curated selection across the Regen Registry, including carbon, biodiversity, and other ecological credit types.</p>
-        <div style="display:flex;flex-direction:column;gap:10px;">
-          <div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--regen-gray-50);border-radius:10px;border-left:3px solid #2d6a4f;">
-            <span style="font-size:18px;flex-shrink:0;">&#127794;</span>
-            <div>
-              <div style="font-size:14px;font-weight:700;color:var(--regen-navy);">Carbon Credits</div>
-              <div style="font-size:12px;color:var(--regen-gray-500);line-height:1.4;">Forest conservation and reforestation sequestering atmospheric carbon.</div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--regen-gray-50);border-radius:10px;border-left:3px solid #d4a017;">
-            <span style="font-size:18px;flex-shrink:0;">&#129409;</span>
-            <div>
-              <div style="font-size:14px;font-weight:700;color:var(--regen-navy);">Terrasos Biodiversity Credits</div>
-              <div style="font-size:12px;color:var(--regen-gray-500);line-height:1.4;">Protecting Colombia's critical ecosystems and wildlife corridors.</div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--regen-gray-50);border-radius:10px;border-left:3px solid #4FB573;">
-            <span style="font-size:18px;flex-shrink:0;">&#127795;</span>
-            <div>
-              <div style="font-size:14px;font-weight:700;color:var(--regen-navy);">City Forest Credits</div>
-              <div style="font-size:12px;color:var(--regen-gray-500);line-height:1.4;">Urban tree canopy cleaning air, reducing heat islands, strengthening communities.</div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--regen-gray-50);border-radius:10px;border-left:3px solid #1e88e5;">
-            <span style="font-size:18px;flex-shrink:0;">&#127754;</span>
-            <div>
-              <div style="font-size:14px;font-weight:700;color:var(--regen-navy);">Marine Biodiversity Stewardship</div>
-              <div style="font-size:12px;color:var(--regen-gray-500);line-height:1.4;">Coastal and ocean ecosystem protection.</div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--regen-gray-50);border-radius:10px;border-left:3px solid #8d6e63;">
-            <span style="font-size:18px;flex-shrink:0;">&#127807;</span>
-            <div>
-              <div style="font-size:14px;font-weight:700;color:var(--regen-navy);">Kilo-Sheep-Hour Credits</div>
-              <div style="font-size:12px;color:var(--regen-gray-500);line-height:1.4;">Regenerative grazing restoring grassland health and soil carbon.</div>
-            </div>
-          </div>
-        </div>
-        <a style="display:inline-block;margin-top:14px;font-size:13px;color:var(--regen-green);font-weight:600;" href="https://app.regen.network" target="_blank" rel="noopener">Browse all projects on Regen Marketplace &rarr;</a>
-      </div>
-    </div>
-
-    <div class="regen-card" style="margin-top:24px;">
-      <div class="regen-card__body">
         <h2 style="color:var(--regen-navy);margin:0 0 8px;font-size:18px;font-weight:700;">Connect to your AI assistant (optional)</h2>
         <p style="color:var(--regen-gray-500);font-size:14px;margin:0 0 16px;">If you use Claude Code, Cursor, or another AI tool that supports MCP, you can connect your subscription so your assistant can check your impact and retire credits on your behalf. <em>Skip this if you'd rather just let your monthly subscription do the work.</em></p>
         <button class="setup-toggle" onclick="toggleSetup()">Show setup instructions</button>
