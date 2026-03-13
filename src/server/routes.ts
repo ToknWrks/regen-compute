@@ -37,11 +37,13 @@ import {
   cancelScheduledRetirements,
   setUserDisplayName,
   getSubscriberByUserId,
+  getCumulativeAttribution,
 } from "./db.js";
 import { betaBannerCSS, betaBannerHTML, betaBannerJS } from "./beta-banner.js";
-import { sendWelcomeEmail } from "../services/email.js";
+import { sendWelcomeEmail, sendFirstRetirementEmail, sendRetirementReceiptEmail } from "../services/email.js";
 import { deriveSubscriberAddress } from "../services/subscriber-wallet.js";
-import { retireForSubscriber, accumulateBurnBudget, calculateNetAfterStripe } from "../services/retire-subscriber.js";
+import { retireForSubscriber, accumulateBurnBudget, calculateNetAfterStripe, type SubscriberRetirementResult } from "../services/retire-subscriber.js";
+import { getProjectForBatch } from "./project-metadata.js";
 import { checkAndSendMonthlyReminder, checkTradableStock } from "../services/admin-telegram.js";
 import { updateRegistryProfile } from "../services/registry-profile.js";
 import { brandFonts, brandCSS, brandHeader, brandFooter } from "./brand.js";
@@ -974,7 +976,7 @@ ${betaBannerJS()}
       const invoice = event.data.object as Stripe.Invoice;
       // Note: handleInvoicePaid triggers retirement asynchronously (fire-and-forget)
       // so the webhook responds quickly. We still await the synchronous part (period updates).
-      await handleInvoicePaid(db, invoice);
+      await handleInvoicePaid(db, invoice, baseUrl);
     }
 
     res.json({ received: true });
@@ -1576,13 +1578,13 @@ ${betaBannerJS()}
   // Start scheduled retirement processor — checks every hour for due yearly retirements
   const SCHEDULED_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
   setInterval(() => {
-    processScheduledRetirements(db).catch((err) => {
+    processScheduledRetirements(db, baseUrl).catch((err) => {
       console.error("Scheduled retirement processor error:", err instanceof Error ? err.message : err);
     });
   }, SCHEDULED_CHECK_INTERVAL_MS);
   // Also run once on startup (after a short delay to let the server finish initializing)
   setTimeout(() => {
-    processScheduledRetirements(db).catch((err) => {
+    processScheduledRetirements(db, baseUrl).catch((err) => {
       console.error("Scheduled retirement processor error (startup):", err instanceof Error ? err.message : err);
     });
   }, 10_000);
@@ -1753,7 +1755,7 @@ function handleSubscriptionDeleted(db: Database.Database, sub: Stripe.Subscripti
   }
 }
 
-async function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice) {
+async function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice, baseUrl: string) {
   try {
     // In Stripe SDK v20+, subscription is nested under parent.subscription_details
     const subDetails = invoice.parent?.subscription_details;
@@ -1822,14 +1824,70 @@ async function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice)
         );
 
         // Execute first month immediately — pass precomputedNetCents to skip double fee deduction
-        executeRetirementAsync(db, existing.id, firstMonthGross, existing.billing_interval, firstMonthNet, invoice.id);
+        executeRetirementAsync(db, existing.id, firstMonthGross, existing.billing_interval, baseUrl, firstMonthNet, invoice.id);
       } else {
         // Monthly: execute immediately (Stripe fees deducted inside retireForSubscriber)
-        executeRetirementAsync(db, existing.id, amountCents, existing.billing_interval, undefined, invoice.id);
+        executeRetirementAsync(db, existing.id, amountCents, existing.billing_interval, baseUrl, undefined, invoice.id);
       }
     }
   } catch (err) {
     console.error("Error handling invoice.paid:", err instanceof Error ? err.message : err);
+  }
+}
+
+/** Send the appropriate retirement notification email (first vs recurring) */
+async function sendRetirementNotificationEmail(
+  db: Database.Database,
+  subscriberId: number,
+  result: SubscriberRetirementResult,
+  baseUrl: string,
+): Promise<void> {
+  try {
+    // Look up subscriber email
+    const sub = db.prepare(
+      "SELECT s.*, u.email FROM subscribers s JOIN users u ON u.id = s.user_id WHERE s.id = ?"
+    ).get(subscriberId) as { email: string; id: number } | undefined;
+    if (!sub?.email) return;
+
+    const dashboardUrl = `${baseUrl}/dashboard/login`;
+    const portfolioUrl = result.regenAddress
+      ? `https://app.regen.network/profiles/${result.regenAddress}/portfolio`
+      : null;
+
+    // Build batch summaries from result
+    const batchSummaries = result.batches
+      .filter((b) => b.creditsRetired > 0)
+      .map((b) => {
+        const project = getProjectForBatch(b.batchDenom);
+        return {
+          projectName: project?.name ?? b.creditClassId,
+          credits: b.creditsRetired,
+          creditType: project?.creditTypeLabel ?? b.creditTypeAbbrev,
+        };
+      });
+
+    // Count total retirements to determine first vs recurring
+    const retirementCount = (db.prepare(
+      "SELECT COUNT(*) as cnt FROM subscriber_retirements WHERE subscriber_id = ?"
+    ).get(subscriberId) as { cnt: number })?.cnt ?? 0;
+
+    if (retirementCount <= 1) {
+      await sendFirstRetirementEmail(
+        sub.email, dashboardUrl, result.totalCreditsRetired, portfolioUrl, batchSummaries,
+      );
+      console.log(`First retirement email sent to ${sub.email}`);
+    } else {
+      // Get cumulative stats
+      const cumulative = getCumulativeAttribution(db, subscriberId);
+      const totalCumCredits = cumulative.total_carbon + cumulative.total_biodiversity + cumulative.total_uss;
+      await sendRetirementReceiptEmail(
+        sub.email, dashboardUrl, result.totalCreditsRetired, totalCumCredits,
+        Math.max(1, cumulative.months_active), portfolioUrl, batchSummaries,
+      );
+      console.log(`Retirement receipt email sent to ${sub.email}`);
+    }
+  } catch (err) {
+    console.error(`Failed to send retirement email for subscriber ${subscriberId}:`, err instanceof Error ? err.message : err);
   }
 }
 
@@ -1839,6 +1897,7 @@ function executeRetirementAsync(
   subscriberId: number,
   grossAmountCents: number,
   billingInterval: "monthly" | "yearly",
+  baseUrl: string,
   precomputedNetCents?: number,
   paymentId?: string
 ): void {
@@ -1857,6 +1916,8 @@ function executeRetirementAsync(
         `Retirement completed: subscriber=${subscriberId} credits=${result.totalCreditsRetired.toFixed(6)} ` +
         `spent=$${(result.totalSpentCents / 100).toFixed(2)} status=${result.status}`
       );
+      // Send retirement notification email (fire-and-forget)
+      sendRetirementNotificationEmail(db, subscriberId, result, baseUrl).catch(() => {});
     } else if (result.status === "partial" && paymentId) {
       // Some batches failed — schedule a retry in 1 hour
       console.warn(
@@ -1865,7 +1926,7 @@ function executeRetirementAsync(
       );
       setTimeout(() => {
         console.log(`Retrying partial retirement for subscriber=${subscriberId} payment=${paymentId}`);
-        executeRetirementAsync(db, subscriberId, grossAmountCents, billingInterval, precomputedNetCents, paymentId);
+        executeRetirementAsync(db, subscriberId, grossAmountCents, billingInterval, baseUrl, precomputedNetCents, paymentId);
       }, 60 * 60 * 1000);
     } else if (result.status === "partial") {
       console.warn(
@@ -1886,7 +1947,7 @@ function executeRetirementAsync(
  * Process due scheduled retirements (for yearly subscribers).
  * Should be called periodically (e.g. daily via cron or setInterval).
  */
-async function processScheduledRetirements(db: Database.Database): Promise<void> {
+async function processScheduledRetirements(db: Database.Database, baseUrl?: string): Promise<void> {
   const due = getDueScheduledRetirements(db);
   if (due.length === 0) return;
 
@@ -1916,6 +1977,10 @@ async function processScheduledRetirements(db: Database.Database): Promise<void>
           `Scheduled retirement completed: id=${scheduled.id} subscriber=${scheduled.subscriber_id} ` +
           `credits=${result.totalCreditsRetired.toFixed(6)}`
         );
+        // Send retirement notification email
+        if (baseUrl) {
+          sendRetirementNotificationEmail(db, scheduled.subscriber_id, result, baseUrl).catch(() => {});
+        }
       } else if (result.status === "partial") {
         // Some batches succeeded, others failed — mark as partial so it will be retried
         if (result.burnBudgetCents > 0) {

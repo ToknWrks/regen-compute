@@ -765,5 +765,185 @@ export async function sendWelcomeEmail(
   }
 }
 
+/**
+ * Send the "first retirement" notification email.
+ * Sent once — after a subscriber's very first retirement completes.
+ */
+export async function sendFirstRetirementEmail(
+  email: string,
+  dashboardUrl: string,
+  totalCredits: number,
+  portfolioUrl: string | null,
+  batchSummaries: { projectName: string; credits: number; creditType: string }[],
+): Promise<void> {
+  const config = loadConfig();
+  if (!config.postmarkServerToken || !config.emailEnabled) return;
+
+  const batchRows = batchSummaries.map((b) =>
+    `<tr>
+      <td style="padding:8px 12px;font-family:Arial,sans-serif;font-size:14px;color:#374151;border-bottom:1px solid #f3f4f6;">${escapeHtml(b.projectName)}</td>
+      <td style="padding:8px 12px;font-family:Arial,sans-serif;font-size:14px;color:#374151;border-bottom:1px solid #f3f4f6;">${escapeHtml(b.creditType)}</td>
+      <td style="padding:8px 12px;font-family:Arial,sans-serif;font-size:14px;color:#374151;border-bottom:1px solid #f3f4f6;text-align:right;">${b.credits.toFixed(4)}</td>
+    </tr>`
+  ).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your first ecocredits have been retired</title></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:'Mulish',Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;">
+<tr><td align="center" style="padding:40px 16px;">
+<table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;">
+  ${emailHeader()}
+  <tr><td>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none;">
+      <tr><td style="height:4px;background:linear-gradient(135deg,#4FB573,#79C6AA);"></td></tr>
+      <tr><td style="padding:36px 32px;">
+        <h1 style="margin:0 0 16px;font-size:24px;font-weight:800;color:#101570;text-align:center;">Your First Ecocredits Are Live</h1>
+        <p style="margin:0 0 20px;font-family:'Inter',Arial,sans-serif;font-size:15px;color:#374151;line-height:1.7;">
+          Your first ecological credit retirements have been executed on-chain. Verified credits from three different projects &mdash; spanning carbon, biodiversity, and species stewardship &mdash; have been permanently retired on your behalf on Regen Ledger.
+        </p>
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0f7f2;border-radius:8px;border:1px solid #b9e1c7;margin-bottom:24px;">
+          <tr><td style="padding:16px 12px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <th style="padding:8px 12px;font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#4FB573;text-transform:uppercase;letter-spacing:0.05em;text-align:left;border-bottom:2px solid #b9e1c7;">Project</th>
+                <th style="padding:8px 12px;font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#4FB573;text-transform:uppercase;letter-spacing:0.05em;text-align:left;border-bottom:2px solid #b9e1c7;">Type</th>
+                <th style="padding:8px 12px;font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#4FB573;text-transform:uppercase;letter-spacing:0.05em;text-align:right;border-bottom:2px solid #b9e1c7;">Credits</th>
+              </tr>
+              ${batchRows}
+            </table>
+            <p style="margin:12px 0 0;font-family:Arial,sans-serif;font-size:14px;font-weight:700;color:#101570;text-align:right;padding:0 12px;">
+              Total: ${totalCredits.toFixed(4)} credits retired
+            </p>
+          </td></tr>
+        </table>
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+          <tr><td align="center">
+            <a href="${escapeHtml(dashboardUrl)}" style="display:inline-block;padding:14px 36px;background:#4FB573;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;border-radius:8px;">View Your Dashboard &rarr;</a>
+          </td></tr>
+        </table>
+
+        ${portfolioUrl ? `<p style="margin:0 0 20px;font-family:'Inter',Arial,sans-serif;font-size:14px;color:#6b7280;line-height:1.6;text-align:center;">
+          You can also view your permanent on-chain portfolio on <a href="${escapeHtml(portfolioUrl)}" style="color:#4FB573;font-weight:600;">Regen Network</a>.
+        </p>` : ""}
+
+        <p style="margin:0 0 16px;font-family:'Inter',Arial,sans-serif;font-size:15px;color:#374151;line-height:1.7;">
+          Each month, new credits will be retired on your behalf and you'll receive an update. Your impact grows with every billing cycle.
+        </p>
+
+        <p style="margin:0;font-family:'Inter',Arial,sans-serif;font-size:15px;color:#374151;line-height:1.7;">
+          We'd love your feedback &mdash; just reply to this email with any thoughts or suggestions.
+        </p>
+      </td></tr>
+      ${emailFooter(`${dashboardUrl.replace("/login", "")}`)}
+    </table>
+  </td></tr>
+</table>
+</td></tr></table></body></html>`;
+
+  await sendViaPostmark(
+    config.postmarkServerToken,
+    config.emailFromAddress,
+    email,
+    "Your first ecocredits have been retired",
+    html,
+    dashboardUrl.replace("/login", ""),
+  );
+}
+
+/**
+ * Send a recurring retirement notification email.
+ * Sent after each subsequent retirement (not the first one).
+ */
+export async function sendRetirementReceiptEmail(
+  email: string,
+  dashboardUrl: string,
+  totalCredits: number,
+  cumulativeCredits: number,
+  monthsActive: number,
+  portfolioUrl: string | null,
+  batchSummaries: { projectName: string; credits: number; creditType: string }[],
+): Promise<void> {
+  const config = loadConfig();
+  if (!config.postmarkServerToken || !config.emailEnabled) return;
+
+  const batchRows = batchSummaries.map((b) =>
+    `<tr>
+      <td style="padding:6px 12px;font-family:Arial,sans-serif;font-size:14px;color:#374151;border-bottom:1px solid #f3f4f6;">${escapeHtml(b.projectName)}</td>
+      <td style="padding:6px 12px;font-family:Arial,sans-serif;font-size:14px;color:#374151;border-bottom:1px solid #f3f4f6;">${escapeHtml(b.creditType)}</td>
+      <td style="padding:6px 12px;font-family:Arial,sans-serif;font-size:14px;color:#374151;border-bottom:1px solid #f3f4f6;text-align:right;">${b.credits.toFixed(4)}</td>
+    </tr>`
+  ).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New ecocredits retired on your behalf</title></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:'Mulish',Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;">
+<tr><td align="center" style="padding:40px 16px;">
+<table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;">
+  ${emailHeader()}
+  <tr><td>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none;">
+      <tr><td style="height:4px;background:linear-gradient(135deg,#4FB573,#79C6AA);"></td></tr>
+      <tr><td style="padding:36px 32px;">
+        <h1 style="margin:0 0 16px;font-size:24px;font-weight:800;color:#101570;text-align:center;">New Credits Retired</h1>
+        <p style="margin:0 0 20px;font-family:'Inter',Arial,sans-serif;font-size:15px;color:#374151;line-height:1.7;">
+          Your latest ecological credit retirements have been executed on-chain. Here's what was retired this cycle:
+        </p>
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0f7f2;border-radius:8px;border:1px solid #b9e1c7;margin-bottom:24px;">
+          <tr><td style="padding:16px 12px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <th style="padding:6px 12px;font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#4FB573;text-transform:uppercase;letter-spacing:0.05em;text-align:left;border-bottom:2px solid #b9e1c7;">Project</th>
+                <th style="padding:6px 12px;font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#4FB573;text-transform:uppercase;letter-spacing:0.05em;text-align:left;border-bottom:2px solid #b9e1c7;">Type</th>
+                <th style="padding:6px 12px;font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#4FB573;text-transform:uppercase;letter-spacing:0.05em;text-align:right;border-bottom:2px solid #b9e1c7;">Credits</th>
+              </tr>
+              ${batchRows}
+            </table>
+            <p style="margin:12px 0 0;font-family:Arial,sans-serif;font-size:14px;font-weight:700;color:#101570;text-align:right;padding:0 12px;">
+              This cycle: ${totalCredits.toFixed(4)} credits
+            </p>
+          </td></tr>
+        </table>
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;margin-bottom:24px;">
+          <tr><td style="padding:16px 20px;text-align:center;">
+            <p style="margin:0 0 4px;font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;">Your cumulative impact</p>
+            <p style="margin:0;font-family:Arial,sans-serif;font-size:22px;font-weight:800;color:#101570;">${cumulativeCredits.toFixed(4)} credits</p>
+            <p style="margin:4px 0 0;font-family:Arial,sans-serif;font-size:13px;color:#6b7280;">${monthsActive} month${monthsActive !== 1 ? "s" : ""} of regeneration</p>
+          </td></tr>
+        </table>
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+          <tr><td align="center">
+            <a href="${escapeHtml(dashboardUrl)}" style="display:inline-block;padding:14px 36px;background:#4FB573;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;border-radius:8px;">View Your Dashboard &rarr;</a>
+          </td></tr>
+        </table>
+
+        ${portfolioUrl ? `<p style="margin:0 0 16px;font-family:'Inter',Arial,sans-serif;font-size:14px;color:#6b7280;line-height:1.6;text-align:center;">
+          On-chain proof: <a href="${escapeHtml(portfolioUrl)}" style="color:#4FB573;font-weight:600;">view your portfolio on Regen Network</a>
+        </p>` : ""}
+      </td></tr>
+      ${emailFooter(`${dashboardUrl.replace("/login", "")}`)}
+    </table>
+  </td></tr>
+</table>
+</td></tr></table></body></html>`;
+
+  await sendViaPostmark(
+    config.postmarkServerToken,
+    config.emailFromAddress,
+    email,
+    "New ecocredits retired on your behalf",
+    html,
+    dashboardUrl.replace("/login", ""),
+  );
+}
+
 // Export for testing
 export { renderEmailHtml, type EmailData };
