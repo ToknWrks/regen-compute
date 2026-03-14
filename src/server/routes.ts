@@ -1736,7 +1736,7 @@ function handleSubscriptionDeleted(db: Database.Database, sub: Stripe.Subscripti
   }
 }
 
-async function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice, baseUrl: string) {
+async function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice, baseUrl: string, retryCount = 0) {
   try {
     // In Stripe SDK v20+, subscription is nested under parent.subscription_details
     const subDetails = invoice.parent?.subscription_details;
@@ -1744,8 +1744,25 @@ async function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice,
     const subId = typeof subRef === "string" ? subRef : subRef?.id;
     if (!subId) return; // Not a subscription invoice
 
-    const existing = getSubscriberByStripeId(db, subId);
-    if (!existing) return; // Not tracked
+    let existing = getSubscriberByStripeId(db, subId);
+    if (!existing) {
+      // Race condition: invoice.paid can arrive before customer.subscription.created.
+      // Retry up to 3 times with increasing delays to give subscription.created time to process.
+      const MAX_RETRIES = 3;
+      const RETRY_DELAYS = [5_000, 15_000, 30_000]; // 5s, 15s, 30s
+      if (retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAYS[retryCount];
+        console.log(`Invoice paid but subscriber not found for ${subId} — retrying in ${delay / 1000}s (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        setTimeout(() => {
+          handleInvoicePaid(db, invoice, baseUrl, retryCount + 1).catch(err => {
+            console.error(`Invoice retry failed for ${subId}:`, err instanceof Error ? err.message : err);
+          });
+        }, delay);
+        return;
+      }
+      console.error(`Invoice paid but subscriber never found for ${subId} after ${MAX_RETRIES} retries — retirement skipped`);
+      return;
+    }
 
     // Update subscription period from the invoice
     const periodStart = invoice.lines?.data?.[0]?.period?.start;
@@ -2040,7 +2057,7 @@ async function maybeExecuteAutoBurn(db: Database.Database): Promise<void> {
   try {
     const result = await swapAndBurn({
       allocationCents: pendingCents,
-      swapDenom: readiness.usdcBalance >= pendingCents / 100 ? "usdc" : "osmo",
+      swapDenom: readiness.usdcBalance >= pendingCents / 100 ? "usdc" : readiness.atomBalance >= 0.01 ? "atom" : "osmo",
     });
 
     if (result.status === "completed") {
