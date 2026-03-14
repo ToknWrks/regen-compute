@@ -1821,8 +1821,21 @@ async function handleInvoicePaid(db: Database.Database, invoice: Stripe.Invoice,
           `(net $${(monthlyNet / 100).toFixed(2)}/mo from $${(amountCents / 100).toFixed(2)} yearly)`
         );
 
-        // Execute first month immediately — pass precomputedNetCents to skip double fee deduction
-        executeRetirementAsync(db, existing.id, firstMonthGross, existing.billing_interval, baseUrl, firstMonthNet, invoice.id);
+        // Accumulate FULL year's burn budget upfront (5% of entire net payment).
+        // Monthly retirements will skip burn accumulation since it's already front-loaded.
+        const yearlyBurnBudget = Math.floor(netTotal * 0.05); // 5% burn split
+        if (yearlyBurnBudget > 0) {
+          accumulateBurnBudget(db, yearlyBurnBudget);
+          console.log(
+            `Front-loaded yearly burn budget: $${(yearlyBurnBudget / 100).toFixed(2)} ` +
+            `(5% of $${(netTotal / 100).toFixed(2)} net) for subscriber ${existing.id}`
+          );
+          maybeExecuteAutoBurn(db).catch(() => {});
+        }
+
+        // Execute first month immediately — pass precomputedNetCents to skip double fee deduction.
+        // skipBurnAccumulation=true because burn was already front-loaded above.
+        executeRetirementAsync(db, existing.id, firstMonthGross, existing.billing_interval, baseUrl, firstMonthNet, invoice.id, true);
       } else {
         // Monthly: execute immediately (Stripe fees deducted inside retireForSubscriber)
         executeRetirementAsync(db, existing.id, amountCents, existing.billing_interval, baseUrl, undefined, invoice.id);
@@ -1897,7 +1910,8 @@ function executeRetirementAsync(
   billingInterval: "monthly" | "yearly",
   baseUrl: string,
   precomputedNetCents?: number,
-  paymentId?: string
+  paymentId?: string,
+  skipBurnAccumulation = false
 ): void {
   retireForSubscriber({
     subscriberId,
@@ -1906,7 +1920,7 @@ function executeRetirementAsync(
     precomputedNetCents,
     paymentId,
   }).then((result) => {
-    if (result.burnBudgetCents > 0 && (result.status === "success" || result.status === "partial")) {
+    if (!skipBurnAccumulation && result.burnBudgetCents > 0 && (result.status === "success" || result.status === "partial")) {
       accumulateBurnBudget(db, result.burnBudgetCents);
       // Check if pending burn budget has reached threshold — trigger auto burn
       maybeExecuteAutoBurn(db).catch(() => {});
@@ -1926,7 +1940,7 @@ function executeRetirementAsync(
       );
       setTimeout(() => {
         console.log(`Retrying partial retirement for subscriber=${subscriberId} payment=${paymentId}`);
-        executeRetirementAsync(db, subscriberId, grossAmountCents, billingInterval, baseUrl, precomputedNetCents, paymentId);
+        executeRetirementAsync(db, subscriberId, grossAmountCents, billingInterval, baseUrl, precomputedNetCents, paymentId, skipBurnAccumulation);
       }, 60 * 60 * 1000);
     } else if (result.status === "partial") {
       console.warn(
@@ -1965,8 +1979,12 @@ async function processScheduledRetirements(db: Database.Database, baseUrl?: stri
         paymentId: `scheduled-${scheduled.id}`,
       });
 
+      // Yearly burn budget is front-loaded at payment time — skip per-month accumulation.
+      // Only accumulate burn for monthly scheduled retirements (currently none, but future-proof).
+      const isYearlyScheduled = scheduled.billing_interval === "yearly";
+
       if (result.status === "success") {
-        if (result.burnBudgetCents > 0) {
+        if (!isYearlyScheduled && result.burnBudgetCents > 0) {
           accumulateBurnBudget(db, result.burnBudgetCents);
           maybeExecuteAutoBurn(db).catch(() => {});
         }
@@ -1984,7 +2002,7 @@ async function processScheduledRetirements(db: Database.Database, baseUrl?: stri
         }
       } else if (result.status === "partial") {
         // Some batches succeeded, others failed — mark as partial so it will be retried
-        if (result.burnBudgetCents > 0) {
+        if (!isYearlyScheduled && result.burnBudgetCents > 0) {
           accumulateBurnBudget(db, result.burnBudgetCents);
           maybeExecuteAutoBurn(db).catch(() => {});
         }
@@ -2057,7 +2075,7 @@ async function maybeExecuteAutoBurn(db: Database.Database): Promise<void> {
   try {
     const result = await swapAndBurn({
       allocationCents: pendingCents,
-      swapDenom: readiness.usdcBalance >= pendingCents / 100 ? "usdc" : readiness.atomBalance >= 0.01 ? "atom" : "osmo",
+      swapDenom: readiness.usdcBalance >= pendingCents / 100 ? "usdc" : "osmo",
     });
 
     if (result.status === "completed") {
