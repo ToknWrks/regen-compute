@@ -20,6 +20,7 @@ import { brandFonts, brandCSS, brandHeader, brandFooter } from "./brand.js";
 import {
   getUserByEmail,
   getSubscriberByUserId,
+  getAllSubscribersByUserId,
   getCumulativeAttribution,
   getMonthlyAttributions,
   getTransactions,
@@ -36,6 +37,7 @@ import {
   type Transaction,
   type CommunityStats,
   type CommunityGoal,
+  type Subscriber,
 } from "./db.js";
 import { PROJECTS, getProjectForBatch, type ProjectInfo } from "./project-metadata.js";
 import { createSessionToken, getSessionEmail } from "./magic-link.js";
@@ -810,43 +812,76 @@ export function createDashboardRoutes(
       return;
     }
 
-    // Admin impersonation: ?as=<subscriber_id>
-    const asParam = typeof req.query.as === "string" ? parseInt(req.query.as, 10) : NaN;
-    let subscriber;
+    // Admin impersonation: ?as=<subscriber_id> or ?as=user:<user_id>
+    const asParam = typeof req.query.as === "string" ? req.query.as : "";
+    let allSubscribers: Subscriber[] = [];
+    let subscriber: Subscriber | undefined;
     let viewEmail = email;
-    if (!isNaN(asParam) && ADMIN_EMAILS.has(email)) {
-      // Look up subscriber directly by ID
-      subscriber = db.prepare(
-        "SELECT s.*, u.email FROM subscribers s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.status = 'active'"
-      ).get(asParam) as (typeof subscriber & { email?: string }) | undefined;
-      if (subscriber && (subscriber as any).email) {
-        viewEmail = (subscriber as any).email;
+
+    if (asParam && ADMIN_EMAILS.has(email)) {
+      if (asParam.startsWith("user:")) {
+        // View all subscriptions for a user: ?as=user:7
+        const targetUserId = parseInt(asParam.slice(5), 10);
+        if (!isNaN(targetUserId)) {
+          allSubscribers = getAllSubscribersByUserId(db, targetUserId);
+          subscriber = allSubscribers[0];
+          const targetUser = db.prepare("SELECT email FROM users WHERE id = ?").get(targetUserId) as { email: string } | undefined;
+          if (targetUser) viewEmail = targetUser.email;
+        }
+      } else {
+        // View single subscriber: ?as=7
+        const subId = parseInt(asParam, 10);
+        if (!isNaN(subId)) {
+          const row = db.prepare(
+            "SELECT s.*, u.email AS user_email FROM subscribers s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.status = 'active'"
+          ).get(subId) as (Subscriber & { user_email?: string }) | undefined;
+          if (row) {
+            subscriber = row;
+            // Load all subscribers for this user to show combined view
+            allSubscribers = getAllSubscribersByUserId(db, row.user_id);
+            if (row.user_email) viewEmail = row.user_email;
+          }
+        }
       }
     } else {
-      subscriber = getSubscriberByUserId(db, user.id);
+      allSubscribers = getAllSubscribersByUserId(db, user.id);
+      subscriber = allSubscribers[0] ?? getSubscriberByUserId(db, user.id);
     }
+
     if (!subscriber) {
       res.setHeader("Content-Type", "text/html");
       res.send(renderLoginPage("No active subscription found for this email."));
       return;
     }
 
-    const cumulative = getCumulativeAttribution(db, subscriber.id);
-    const monthly = getMonthlyAttributions(db, subscriber.id);
+    // Use all subscriber IDs for aggregation
+    const allSubIds = allSubscribers.length > 0
+      ? allSubscribers.map(s => s.id)
+      : [subscriber.id];
+
+    const cumulative = getCumulativeAttribution(db, allSubIds);
+    const monthly = getMonthlyAttributions(db, allSubIds);
     const badges = computeBadges(cumulative);
-    const memberSince = formatDate(subscriber.created_at);
+    const memberSince = formatDate(
+      allSubscribers.length > 0
+        ? allSubscribers.reduce((earliest, s) => s.created_at < earliest ? s.created_at : earliest, allSubscribers[0].created_at)
+        : subscriber.created_at
+    );
     const manageUrl = `${baseUrl}/manage?email=${encodeURIComponent(viewEmail)}`;
     const viewUser = getUserByEmail(db, viewEmail);
     const transactions = getTransactions(db, viewUser?.id ?? user.id, 20);
     const communityStats = getCommunityStats(db);
 
-    // Next retirement date from subscription period end
-    const nextRetirementDate = subscriber.current_period_end
-      ? formatDate(subscriber.current_period_end)
+    // Next retirement date — earliest period_end across all subs
+    const nextRetirementDate = allSubscribers
+      .map(s => s.current_period_end)
+      .filter(Boolean)
+      .sort()[0]
+      ? formatDate(allSubscribers.map(s => s.current_period_end).filter(Boolean).sort()[0]!)
       : null;
 
-    // Per-batch totals → project cards
-    const batchTotals = getSubscriberBatchTotals(db, subscriber.id);
+    // Per-batch totals → project cards (aggregated across all subs)
+    const batchTotals = getSubscriberBatchTotals(db, allSubIds);
     const projectCards: ProjectCardData[] = [];
     for (const bt of batchTotals) {
       const project = getProjectForBatch(bt.batch_denom);
@@ -860,10 +895,11 @@ export function createDashboardRoutes(
       }
     }
 
-    // Regen address for the subscriber
+    // Regen address — check across all subscriber IDs
+    const placeholdersAddr = allSubIds.map(() => "?").join(",");
     const regenAddress = (db.prepare(
-      "SELECT regen_address FROM subscriber_retirements WHERE subscriber_id = ? ORDER BY id DESC LIMIT 1"
-    ).get(subscriber.id) as { regen_address: string } | undefined)?.regen_address ?? null;
+      `SELECT regen_address FROM subscriber_retirements WHERE subscriber_id IN (${placeholdersAddr}) ORDER BY id DESC LIMIT 1`
+    ).get(...allSubIds) as { regen_address: string } | undefined)?.regen_address ?? null;
 
     // Community goal data
     const communityGoal = getActiveCommunityGoal(db);
@@ -889,17 +925,26 @@ export function createDashboardRoutes(
       }
     }
 
+    // For multi-sub users, compute combined amount and pick highest plan
+    const planPriority: Record<string, number> = { dabbler: 0, seedling: 1, builder: 2, grove: 3, forest: 4, agent: 5 };
+    const displaySub = allSubscribers.length > 1
+      ? allSubscribers.reduce((best, s) => (planPriority[s.plan] ?? 0) > (planPriority[best.plan] ?? 0) ? s : best, allSubscribers[0])
+      : subscriber;
+    // Sum monthly-equivalent across all subs
+    const totalMonthlyCents = allSubscribers.reduce((sum, s) =>
+      sum + (s.billing_interval === "yearly" ? Math.round(s.amount_cents / 12) : s.amount_cents), 0);
+
     res.setHeader("Content-Type", "text/html");
     res.send(renderDashboardPage({
       email,
-      plan: subscriber.plan,
+      plan: displaySub.plan,
       memberSince,
       cumulative,
       monthly,
       badges,
       manageUrl,
-      amountCents: subscriber.amount_cents,
-      billingInterval: (subscriber.billing_interval === "yearly" ? "yearly" : "monthly") as "monthly" | "yearly",
+      amountCents: allSubscribers.length > 1 ? totalMonthlyCents : subscriber.amount_cents,
+      billingInterval: allSubscribers.length > 1 ? "monthly" : (subscriber.billing_interval === "yearly" ? "yearly" : "monthly") as "monthly" | "yearly",
       baseUrl,
       nextRetirementDate,
       transactions,

@@ -698,8 +698,8 @@ export function getCumulativeSubscriberRetirements(db: Database.Database, subscr
   return row ?? { total_credits_retired: 0, total_spent_cents: 0, total_gross_cents: 0, retirement_count: 0 };
 }
 
-/** Get per-batch retirement totals for a subscriber (for project cards) */
-export function getSubscriberBatchTotals(db: Database.Database, subscriberId: number): Array<{
+/** Get per-batch retirement totals for one or more subscribers (for project cards) */
+export function getSubscriberBatchTotals(db: Database.Database, subscriberIds: number | number[]): Array<{
   batch_denom: string;
   credit_class_id: string;
   credit_type_abbrev: string;
@@ -708,6 +708,8 @@ export function getSubscriberBatchTotals(db: Database.Database, subscriberId: nu
   latest_tx_hash: string | null;
   retirement_count: number;
 }> {
+  const ids = Array.isArray(subscriberIds) ? subscriberIds : [subscriberIds];
+  const placeholders = ids.map(() => "?").join(",");
   return db.prepare(`
     SELECT
       srb.batch_denom,
@@ -719,10 +721,10 @@ export function getSubscriberBatchTotals(db: Database.Database, subscriberId: nu
       COUNT(*) AS retirement_count
     FROM subscriber_retirement_batches srb
     JOIN subscriber_retirements sr ON sr.id = srb.retirement_id
-    WHERE sr.subscriber_id = ? AND srb.credits_retired > 0
+    WHERE sr.subscriber_id IN (${placeholders}) AND srb.credits_retired > 0
     GROUP BY srb.batch_denom
     ORDER BY total_credits DESC
-  `).all(subscriberId) as Array<{
+  `).all(...ids) as Array<{
     batch_denom: string;
     credit_class_id: string;
     credit_type_abbrev: string;
@@ -1165,7 +1167,9 @@ export function getTotalBurnedRegen(db: Database.Database): { total_regen: numbe
   return row ?? { total_regen: 0, total_burns: 0 };
 }
 
-export function getCumulativeAttribution(db: Database.Database, subscriberId: number): CumulativeAttribution {
+export function getCumulativeAttribution(db: Database.Database, subscriberIds: number | number[]): CumulativeAttribution {
+  const ids = Array.isArray(subscriberIds) ? subscriberIds : [subscriberIds];
+  const placeholders = ids.map(() => "?").join(",");
   const row = db.prepare(`
     SELECT
       COALESCE(SUM(carbon_credits), 0) AS total_carbon,
@@ -1174,8 +1178,8 @@ export function getCumulativeAttribution(db: Database.Database, subscriberId: nu
       COALESCE(SUM(contribution_cents), 0) AS total_contribution_cents,
       COUNT(DISTINCT pool_run_id) AS months_active
     FROM attributions
-    WHERE subscriber_id = ?
-  `).get(subscriberId) as CumulativeAttribution | undefined;
+    WHERE subscriber_id IN (${placeholders})
+  `).get(...ids) as CumulativeAttribution | undefined;
 
   return row ?? {
     total_carbon: 0,
@@ -1245,6 +1249,13 @@ export function getSubscriberByUserId(db: Database.Database, userId: number): Su
   ).get(userId) as Subscriber | undefined;
 }
 
+/** Get ALL active subscribers for a user (for multi-subscription dashboards) */
+export function getAllSubscribersByUserId(db: Database.Database, userId: number): Subscriber[] {
+  return db.prepare(
+    "SELECT * FROM subscribers WHERE user_id = ? AND status = 'active' ORDER BY created_at ASC"
+  ).all(userId) as Subscriber[];
+}
+
 export interface MonthlyAttribution {
   run_date: string;
   carbon_credits: number;
@@ -1256,22 +1267,25 @@ export interface MonthlyAttribution {
   uss_tx_hash: string | null;
 }
 
-export function getMonthlyAttributions(db: Database.Database, subscriberId: number): MonthlyAttribution[] {
+export function getMonthlyAttributions(db: Database.Database, subscriberIds: number | number[]): MonthlyAttribution[] {
+  const ids = Array.isArray(subscriberIds) ? subscriberIds : [subscriberIds];
+  const placeholders = ids.map(() => "?").join(",");
   return db.prepare(`
     SELECT
       pr.run_date,
-      a.carbon_credits,
-      a.biodiversity_credits,
-      a.uss_credits,
-      a.contribution_cents,
+      SUM(a.carbon_credits) AS carbon_credits,
+      SUM(a.biodiversity_credits) AS biodiversity_credits,
+      SUM(a.uss_credits) AS uss_credits,
+      SUM(a.contribution_cents) AS contribution_cents,
       pr.carbon_tx_hash,
       pr.biodiversity_tx_hash,
       pr.uss_tx_hash
     FROM attributions a
     JOIN pool_runs pr ON a.pool_run_id = pr.id
-    WHERE a.subscriber_id = ?
+    WHERE a.subscriber_id IN (${placeholders})
+    GROUP BY pr.run_date
     ORDER BY pr.run_date ASC
-  `).all(subscriberId) as MonthlyAttribution[];
+  `).all(...ids) as MonthlyAttribution[];
 }
 
 // --- Referral helpers ---
