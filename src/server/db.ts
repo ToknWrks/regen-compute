@@ -45,6 +45,8 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
       amount_cents INTEGER NOT NULL,
       description TEXT,
       stripe_session_id TEXT,
+      stripe_subscription_id TEXT,
+      billing_interval TEXT CHECK(billing_interval IN ('monthly', 'yearly')),
       retirement_tx_hash TEXT,
       credit_class TEXT,
       credits_retired REAL,
@@ -421,6 +423,35 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
     console.log("Migration: added 'subscription' type to transactions, reclassified existing rows");
   }
 
+  // Migration: add billing_interval and stripe_subscription_id to transactions
+  const txnCols = (_db.pragma("table_info(transactions)") as Array<{ name: string }>).map((c) => c.name);
+  if (!txnCols.includes("billing_interval")) {
+    _db.exec(`ALTER TABLE transactions ADD COLUMN billing_interval TEXT CHECK(billing_interval IN ('monthly', 'yearly'))`);
+    console.log("Migration: added billing_interval column to transactions");
+  }
+  if (!txnCols.includes("stripe_subscription_id")) {
+    _db.exec(`ALTER TABLE transactions ADD COLUMN stripe_subscription_id TEXT`);
+    console.log("Migration: added stripe_subscription_id column to transactions");
+  }
+
+  // Backfill billing_interval on existing transactions from their subscriber records
+  _db.prepare(`
+    UPDATE transactions SET
+      billing_interval = (
+        SELECT s.billing_interval FROM subscribers s
+        WHERE s.user_id = transactions.user_id
+        AND transactions.type = 'subscription'
+        LIMIT 1
+      ),
+      stripe_subscription_id = (
+        SELECT s.stripe_subscription_id FROM subscribers s
+        WHERE s.user_id = transactions.user_id
+        AND transactions.type = 'subscription'
+        LIMIT 1
+      )
+    WHERE type = 'subscription' AND billing_interval IS NULL
+  `).run();
+
   return _db;
 }
 
@@ -499,7 +530,9 @@ export function creditBalance(
   amountCents: number,
   stripeSessionId: string,
   description: string,
-  type: "topup" | "subscription" = "topup"
+  type: "topup" | "subscription" = "topup",
+  billingInterval?: "monthly" | "yearly",
+  stripeSubscriptionId?: string
 ): void {
   const txn = db.transaction(() => {
     db.prepare(
@@ -507,8 +540,8 @@ export function creditBalance(
     ).run(amountCents, userId);
 
     db.prepare(
-      "INSERT INTO transactions (user_id, type, amount_cents, description, stripe_session_id) VALUES (?, ?, ?, ?, ?)"
-    ).run(userId, type, amountCents, description, stripeSessionId);
+      "INSERT INTO transactions (user_id, type, amount_cents, description, stripe_session_id, stripe_subscription_id, billing_interval) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(userId, type, amountCents, description, stripeSessionId, stripeSubscriptionId ?? null, billingInterval ?? null);
   });
   txn();
 }

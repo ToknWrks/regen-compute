@@ -955,21 +955,39 @@ ${betaBannerJS()}
         console.log(`New user created: ${user.api_key} (${email})`);
       }
 
-      // Credit balance — detect subscription vs one-time
+      // Extract billing interval from the Stripe subscription (if subscription mode)
       const isSubscription = session.mode === "subscription";
+      let billingInterval: "monthly" | "yearly" | undefined;
+      let stripeSubscriptionId: string | undefined;
+      if (isSubscription && session.subscription) {
+        stripeSubscriptionId = typeof session.subscription === "string"
+          ? session.subscription
+          : session.subscription.id;
+        try {
+          const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+          const interval = sub.items?.data?.[0]?.price?.recurring?.interval;
+          billingInterval = interval === "year" ? "yearly" : "monthly";
+        } catch (err) {
+          console.warn(`Could not retrieve subscription ${stripeSubscriptionId} for billing interval:`, err instanceof Error ? err.message : err);
+          billingInterval = undefined; // Will be backfilled from subscriber record
+        }
+      }
+
       creditBalance(
         db,
         user.id,
         amountCents,
         session.id,
         isSubscription
-          ? `Subscription payment: $${(amountCents / 100).toFixed(2)}`
+          ? `Subscription payment (${billingInterval ?? "unknown"}): $${(amountCents / 100).toFixed(2)}`
           : `One-time boost: $${(amountCents / 100).toFixed(2)}`,
-        isSubscription ? "subscription" : "topup"
+        isSubscription ? "subscription" : "topup",
+        billingInterval,
+        stripeSubscriptionId
       );
 
       console.log(
-        `Balance credited: user=${user.id} amount=$${(amountCents / 100).toFixed(2)} balance=$${((user.balance_cents + amountCents) / 100).toFixed(2)}`
+        `Balance credited: user=${user.id} amount=$${(amountCents / 100).toFixed(2)} interval=${billingInterval ?? "n/a"} balance=$${((user.balance_cents + amountCents) / 100).toFixed(2)}`
       );
     } else if (event.type === "customer.subscription.created") {
       const sub = event.data.object as Stripe.Subscription;
