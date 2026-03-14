@@ -89,25 +89,30 @@ export async function retireForSubscriber(options: {
   paymentId?: string;
   dbPath?: string;
   dryRun?: boolean;
+  overrideAddress?: string;
 }): Promise<SubscriberRetirementResult> {
   const { subscriberId, grossAmountCents, billingInterval, dryRun = false, paymentId } = options;
   const db = getDb(options.dbPath);
   const config = loadConfig();
   const errors: string[] = [];
 
-  // 1. Derive subscriber address
+  // 1. Derive subscriber address (or use override for multi-sub consolidation)
   let regenAddress: string;
-  try {
-    regenAddress = await deriveSubscriberAddress(subscriberId);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return {
-      subscriberId, regenAddress: "", status: "failed",
-      grossAmountCents, netAmountCents: 0, creditsBudgetCents: 0,
-      burnBudgetCents: 0, opsBudgetCents: 0,
-      batches: [], totalCreditsRetired: 0, totalSpentCents: 0,
-      errors: [`Address derivation failed: ${msg}`],
-    };
+  if (options.overrideAddress) {
+    regenAddress = options.overrideAddress;
+  } else {
+    try {
+      regenAddress = await deriveSubscriberAddress(subscriberId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        subscriberId, regenAddress: "", status: "failed",
+        grossAmountCents, netAmountCents: 0, creditsBudgetCents: 0,
+        burnBudgetCents: 0, opsBudgetCents: 0,
+        batches: [], totalCreditsRetired: 0, totalSpentCents: 0,
+        errors: [`Address derivation failed: ${msg}`],
+      };
+    }
   }
 
   // 1b. Look up subscriber's display name for personalized retirement reason

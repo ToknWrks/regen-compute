@@ -36,6 +36,7 @@ async function main() {
     grossAmountCents: 250,
     billingInterval: "monthly",
     paymentId: "manual-todd-sub7",
+    overrideAddress: toddAddress,
     dryRun,
   });
   console.log(`  Status: ${result7.status}`);
@@ -96,6 +97,7 @@ async function main() {
       billingInterval: "yearly",
       precomputedNetCents: firstMonthNet,
       paymentId: `manual-todd-sub${subId}-m1`,
+      overrideAddress: toddAddress,
       dryRun,
     });
     console.log(`  Status: ${result.status}`);
