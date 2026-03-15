@@ -25,26 +25,25 @@ vi.mock("../config.js", () => ({
   isWalletConfigured: vi.fn(() => true),
 }));
 
-// Mock order-selector
-vi.mock("../services/order-selector.js", () => ({
-  selectBestOrders: vi.fn(async (_creditType: unknown, quantity: number, _denom: unknown, _abbrevs: unknown) => ({
-    orders: [
-      {
-        sellOrderId: "1",
-        batchDenom: "C01-001",
-        quantity: String(Math.min(quantity, 10)),
-        askAmount: "1000000",
-        askDenom: "uregen",
-        costMicro: BigInt(Math.ceil(Math.min(quantity, 10) * 1000000)),
-      },
-    ],
-    totalQuantity: String(Math.min(quantity, 10).toFixed(6)),
-    totalCostMicro: BigInt(Math.ceil(Math.min(quantity, 10) * 1000000)),
-    paymentDenom: "uregen",
-    displayDenom: "REGEN",
-    exponent: 6,
-    insufficientSupply: quantity > 10,
-  })),
+// Mock ledger — sell orders, credit classes, allowed denoms
+vi.mock("../services/ledger.js", () => ({
+  listSellOrders: vi.fn(async () => [
+    { id: "1", seller: "regen1seller", batch_denom: "C02-001-20210101-20211231-001", quantity: "100", ask_denom: "uregen", ask_amount: "1000000", disable_auto_retire: false, expiration: null },
+    { id: "2", seller: "regen1seller", batch_denom: "C02-002-20220101-20221231-001", quantity: "100", ask_denom: "uregen", ask_amount: "1000000", disable_auto_retire: false, expiration: null },
+    { id: "3", seller: "regen1seller", batch_denom: "BT01-001-20210101-20211231-001", quantity: "100", ask_denom: "uregen", ask_amount: "1000000", disable_auto_retire: false, expiration: null },
+    { id: "4", seller: "regen1seller", batch_denom: "BT01-002-20220101-20221231-001", quantity: "100", ask_denom: "uregen", ask_amount: "1000000", disable_auto_retire: false, expiration: null },
+    { id: "5", seller: "regen1seller", batch_denom: "USS01-001-20210101-20211231-001", quantity: "100", ask_denom: "uregen", ask_amount: "1000000", disable_auto_retire: false, expiration: null },
+    { id: "6", seller: "regen1seller", batch_denom: "KSH01-001-20210101-20211231-001", quantity: "100", ask_denom: "uregen", ask_amount: "1000000", disable_auto_retire: false, expiration: null },
+  ]),
+  listCreditClasses: vi.fn(async () => [
+    { id: "C02", credit_type_abbrev: "C" },
+    { id: "BT01", credit_type_abbrev: "BT" },
+    { id: "USS01", credit_type_abbrev: "USS" },
+    { id: "KSH01", credit_type_abbrev: "KSH" },
+  ]),
+  getAllowedDenoms: vi.fn(async () => [
+    { bank_denom: "uregen", display_denom: "REGEN", exponent: 6 },
+  ]),
 }));
 
 // Mock email service
@@ -64,8 +63,8 @@ vi.mock("../server/db.js", async () => {
 
 import { executePoolRun, type PoolRunResult } from "../services/pool.js";
 import { signAndBroadcast } from "../services/wallet.js";
-import { selectBestOrders } from "../services/order-selector.js";
 import { loadConfig } from "../config.js";
+import { listSellOrders } from "../services/ledger.js";
 
 let db: Database.Database;
 
@@ -239,17 +238,19 @@ describe("Pool Service", () => {
         .toBe(result.totalRevenueCents);
     });
 
-    it("calculates correct 50/30/20 credit type allocation within credits budget", async () => {
+    it("allocates credit budget equally across all eligible batches", async () => {
       addTestSubscribers(10, 1000); // $100 total, 75% = $75 credits budget (monthly)
 
       const result = await executePoolRun({ dryRun: true });
 
-      // 50% of 7500 = 3750
-      expect(result.carbon.budgetCents).toBe(3750);
-      // 30% of 7500 = 2250
-      expect(result.biodiversity.budgetCents).toBe(2250);
-      // Remainder = 7500 - 3750 - 2250 = 1500
-      expect(result.uss.budgetCents).toBe(1500);
+      // 6 eligible batches, equal allocation: floor(7500 / 6) = 1250 per batch
+      // Carbon: 2 batches (C02-001, C02-002) = 2 * 1250 = 2500 (+ 0 remainder to first batch overall)
+      // Biodiversity: 2 batches (BT01-001, BT01-002) = 2 * 1250 = 2500
+      // USS: 2 batches (USS01-001, KSH01-001) = 2 * 1250 = 2500
+      expect(result.batches.length).toBe(6);
+      expect(result.carbon.budgetCents).toBe(2500);
+      expect(result.biodiversity.budgetCents).toBe(2500);
+      expect(result.uss.budgetCents).toBe(2500);
 
       // Credit type budgets sum to credits budget
       expect(result.carbon.budgetCents + result.biodiversity.budgetCents + result.uss.budgetCents)
@@ -276,9 +277,11 @@ describe("Pool Service", () => {
       const result = await executePoolRun({ dryRun: false });
 
       expect(result.dryRun).toBe(false);
-      // signAndBroadcast should have been called for each credit type
-      expect(signAndBroadcast).toHaveBeenCalled();
-      expect(result.carbon.txHash).toBe("AABB1122");
+      // signAndBroadcast should have been called for each eligible batch (6 batches)
+      expect(signAndBroadcast).toHaveBeenCalledTimes(6);
+      // Each category aggregates txHashes from its batches (comma-separated)
+      // Carbon has 2 batches, each returning "AABB1122"
+      expect(result.carbon.txHash).toBe("AABB1122,AABB1122");
     });
 
     it("records per-subscriber fractional attributions", async () => {
@@ -315,10 +318,11 @@ describe("Pool Service", () => {
       }
     });
 
-    it("handles partial fill when one credit type fails", async () => {
+    it("handles partial fill when one batch fails", async () => {
       addTestSubscribers(1, 1000);
 
-      // Make signAndBroadcast fail on second call
+      // Make signAndBroadcast fail on second call (BT01-002, the second sorted batch)
+      // Sorted batches: BT01-001, BT01-002, C02-001, C02-002, KSH01-001, USS01-001
       let callCount = 0;
       vi.mocked(signAndBroadcast).mockImplementation(async () => {
         callCount++;
@@ -340,7 +344,9 @@ describe("Pool Service", () => {
       const result = await executePoolRun({ dryRun: false });
 
       expect(result.status).toBe("partial");
-      expect(result.carbon.txHash).toBe("TX1");
+      // Carbon: 2 batches (calls 3 & 4) both succeed
+      expect(result.carbon.txHash).toBe("TX3,TX4");
+      // Biodiversity: call 1 succeeds (TX1), call 2 fails
       expect(result.biodiversity.error).toContain("broadcast failed");
       expect(result.errors.length).toBeGreaterThan(0);
     });
