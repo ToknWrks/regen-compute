@@ -2113,8 +2113,16 @@ async function processScheduledRetirements(db: Database.Database, baseUrl?: stri
 const AUTO_BURN_THRESHOLD_CENTS = 100; // $1.00
 
 /** Debounce: don't trigger another burn if one ran within the last hour. */
-let _lastBurnAttempt = 0;
 const BURN_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
+/** Get last burn attempt timestamp from DB (survives restarts). */
+function getLastBurnAttempt(db: Database.Database): number {
+  const row = db.prepare(
+    "SELECT MAX(created_at) as last FROM burn_accumulator WHERE executed = 1"
+  ).get() as { last: string | null } | undefined;
+  if (!row?.last) return 0;
+  return new Date(row.last).getTime();
+}
 
 /**
  * Check pending burn budget and trigger swap-and-burn if threshold is met.
@@ -2123,7 +2131,8 @@ const BURN_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
  */
 async function maybeExecuteAutoBurn(db: Database.Database): Promise<void> {
   const now = Date.now();
-  if (now - _lastBurnAttempt < BURN_COOLDOWN_MS) return;
+  const lastBurn = getLastBurnAttempt(db);
+  if (now - lastBurn < BURN_COOLDOWN_MS) return;
 
   const pendingCents = getPendingBurnBudget(db);
   if (pendingCents < AUTO_BURN_THRESHOLD_CENTS) return;
@@ -2138,7 +2147,6 @@ async function maybeExecuteAutoBurn(db: Database.Database): Promise<void> {
     return;
   }
 
-  _lastBurnAttempt = now;
   console.log(`Auto-burn: triggering swap-and-burn for $${(pendingCents / 100).toFixed(2)} pending burn budget`);
 
   try {
@@ -2147,13 +2155,17 @@ async function maybeExecuteAutoBurn(db: Database.Database): Promise<void> {
       swapDenom: readiness.usdcBalance >= pendingCents / 100 ? "usdc" : "osmo",
     });
 
-    if (result.status === "completed") {
-      // Mark accumulated entries as executed
+    if (result.status === "completed" || result.status === "partial") {
+      // Mark accumulated entries as executed — even on partial, the swap already
+      // happened so we must not re-process these entries (prevents over-burning).
       const maxId = db.prepare(
         "SELECT MAX(id) AS max_id FROM burn_accumulator WHERE executed = 0"
       ).get() as { max_id: number | null };
       if (maxId.max_id) {
         markBurnExecuted(db, maxId.max_id);
+      }
+      if (result.status === "partial") {
+        console.warn(`Auto-burn partial: swap succeeded but IBC/burn may have failed. Entries marked executed to prevent double-swap.`);
       }
       console.log(
         `Auto-burn completed: burned ${Number(result.burnAmountUregen) / 1e6} REGEN ` +
