@@ -58,6 +58,11 @@ export function createAboutRoutes(baseUrl: string): Router {
       max-width: 640px; margin: 0 auto; line-height: 1.6;
     }
 
+    .about-banner {
+      width: 100%; max-height: 400px; object-fit: cover;
+      border-radius: 0 0 12px 12px;
+      margin-top: -1px;
+    }
     .about-body { padding: 56px 0 0; }
     .about-body h2 {
       font-size: 24px; font-weight: 800; color: var(--regen-navy);
@@ -230,6 +235,7 @@ export function createAboutRoutes(baseUrl: string): Router {
       <h1>Built by People Who <span>Love This Planet</span></h1>
       <p class="subtitle">Regenerative Compute didn&rsquo;t start in a tech incubator. It started in the soil &mdash; with people who spent decades working alongside farmers, ecologists, and indigenous communities before ever writing a line of code.</p>
     </div>
+    <img class="about-banner" src="/team/team-banner.jpg" alt="The Regen Network team at Racebrook retreat, September 2022" loading="lazy">
   </section>
 
   <section class="about-body">
