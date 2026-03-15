@@ -61,9 +61,9 @@ export function createAboutRoutes(baseUrl: string): Router {
     .about-banner {
       width: 100%; max-height: 400px; object-fit: cover;
       border-radius: 0 0 12px 12px;
-      margin-top: -1px;
+      margin-top: 24px;
     }
-    .about-body { padding: 56px 0 0; }
+    .about-body { padding: 32px 0 0; }
     .about-body h2 {
       font-size: 24px; font-weight: 800; color: var(--regen-navy);
       margin: 56px 0 16px; letter-spacing: -0.01em;
