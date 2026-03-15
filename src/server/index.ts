@@ -167,6 +167,16 @@ export function startServer(options: { port?: number; dbPath?: string } = {}) {
     res.sendFile("og-card.jpg", { root: process.cwd() });
   });
 
+  // Team photos (served from public/team/ directory)
+  app.get("/team/:filename", (req, res) => {
+    const filename = req.params.filename.replace(/[^a-zA-Z0-9._-]/g, "");
+    if (!filename.match(/\.(png|jpg|jpeg|webp)$/i)) {
+      return res.status(404).send("Not found");
+    }
+    res.setHeader("Cache-Control", "public, max-age=31536000");
+    res.sendFile(`public/team/${filename}`, { root: process.cwd() });
+  });
+
   // Always init DB and config — display-only pages need them
   const db = getDb(dbPath);
   const config = loadConfig();

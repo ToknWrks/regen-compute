@@ -97,6 +97,9 @@ export function createAboutRoutes(baseUrl: string): Router {
       background: linear-gradient(135deg, #1a5c3a 0%, #0d7a5f 100%);
       display: flex; align-items: center; justify-content: center;
     }
+    .person-photo img {
+      width: 100%; height: 100%; object-fit: cover;
+    }
     .person-photo .initials {
       font-size: 32px; font-weight: 800; color: rgba(255,255,255,0.9);
       letter-spacing: -0.02em;
@@ -246,7 +249,7 @@ export function createAboutRoutes(baseUrl: string): Router {
       <h2>The People</h2>
       <div class="people-grid">
         <div class="person">
-          <div class="person-photo"><span class="initials">GL</span></div>
+          <div class="person-photo"><img src="/team/gregory.png" alt="Gregory Landua" loading="lazy"></div>
           <div class="person-info">
             <h3>Gregory Landua</h3>
             <div class="role">Co-Founder &amp; CEO, Regen Network</div>
@@ -257,7 +260,7 @@ export function createAboutRoutes(baseUrl: string): Router {
         </div>
 
         <div class="person">
-          <div class="person-photo"><span class="initials">CS</span></div>
+          <div class="person-photo"><img src="/team/christian.png" alt="Christian Shearer" loading="lazy"></div>
           <div class="person-info">
             <h3>Christian Shearer</h3>
             <div class="role">Co-Founder, Regen Network &middot; Creator, Regenerative Compute</div>
@@ -268,18 +271,18 @@ export function createAboutRoutes(baseUrl: string): Router {
         </div>
 
         <div class="person">
-          <div class="person-photo"><span class="initials">WS</span></div>
+          <div class="person-photo"><img src="/team/gisel.png" alt="Gisel Booman, Ph.D." loading="lazy"></div>
           <div class="person-info">
-            <h3>Will Szal</h3>
-            <div class="role">Co-Founder &amp; Board President, Regen Foundation</div>
+            <h3>Gisel Booman, Ph.D.</h3>
+            <div class="role">Head of Science, Regen Network</div>
             <p>
-              Will met Gregory on the shores of Lake Champlain at a Slow Money gathering in 2010. That meeting sparked a decade of collaboration at the intersection of alternative economics and regenerative agriculture. A graduate of the Farm School&rsquo;s Learn to Farm Program, Will helped start the UMass Permaculture Project and the regional investment group PVGrows. He led the economics design for Regen Network and continues to serve as President of the Board of Regen Foundation.
+              Gisel holds a PhD in Biological Sciences specializing in Landscape Ecology. Before joining Regen Network, she was an Assistant Professor of GIS at Universidad Nacional de Mar del Plata in Argentina and consulted for the Inter-American Development Bank on remote sensing and environmental assessment. For over seven years at Regen, she has led the science that makes ecological credits credible &mdash; designing the MRV (Measurement, Reporting, Verification) systems that bridge remote sensing data with on-the-ground ecological outcomes. She&rsquo;s the person who ensures that when we say &ldquo;verified ecological credit,&rdquo; we mean it. Her work connects methodology developers, land stewards, and project proponents into a system where ecological claims can be independently verified.
             </p>
           </div>
         </div>
 
         <div class="person">
-          <div class="person-photo"><span class="initials">AC</span></div>
+          <div class="person-photo"><img src="/team/aaron.png" alt="Aaron Craelius" loading="lazy"></div>
           <div class="person-info">
             <h3>Aaron Craelius</h3>
             <div class="role">CTO, Regen Network</div>
