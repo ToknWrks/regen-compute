@@ -1780,6 +1780,32 @@ function handleSubscriptionDeleted(db: Database.Database, sub: Stripe.Subscripti
       if (cancelled > 0) {
         console.log(`Cancelled ${cancelled} scheduled retirement(s) for subscriber ${existing.id}`);
       }
+
+      // Refund unused burn budget for yearly subscribers
+      if (existing.billing_interval === "yearly") {
+        // Count how many monthly retirements were actually executed
+        const executedCount = db.prepare(
+          "SELECT COUNT(*) as count FROM subscriber_retirements WHERE subscriber_id = ?"
+        ).get(existing.id) as { count: number };
+
+        const monthsUsed = executedCount.count;
+        const monthsUnused = Math.max(0, 12 - monthsUsed);
+
+        if (monthsUnused > 0) {
+          const yearlyNet = calculateNetAfterStripe(existing.amount_cents);
+          const yearlyBurnBudget = Math.floor(yearlyNet * 0.05);
+          const unusedBurn = Math.floor(yearlyBurnBudget * monthsUnused / 12);
+
+          if (unusedBurn > 0) {
+            // Insert negative entry to offset the front-loaded burn
+            accumulateBurnBudget(db, -unusedBurn);
+            console.log(
+              `Refunded unused burn budget for cancelled yearly subscriber ${existing.id}: ` +
+              `$${(unusedBurn / 100).toFixed(2)} (${monthsUnused} unused months of ${yearlyBurnBudget} total)`
+            );
+          }
+        }
+      }
     }
 
     console.log(`Subscription cancelled: ${stripeSubId}`);
