@@ -8,6 +8,7 @@
  * - pool_runs: monthly batch retirement execution records
  * - attributions: per-subscriber fractional credit attribution per pool run
  * - burns: REGEN token burn records linked to pool runs
+ * - processed_webhook_events: Stripe webhook event deduplication
  */
 
 import Database from "better-sqlite3";
@@ -279,6 +280,12 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer ON referral_rewards(referrer_user_id);
     CREATE INDEX IF NOT EXISTS idx_referral_rewards_status ON referral_rewards(status);
+
+    CREATE TABLE IF NOT EXISTS processed_webhook_events (
+      event_id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migrations for existing DBs — add billing_interval to subscribers table
@@ -1368,4 +1375,14 @@ export function verifyMagicLinkToken(db: Database.Database, token: string): stri
   ).get(token) as { email: string } | undefined;
 
   return row?.email ?? null;
+}
+
+// --- Webhook idempotency ---
+
+export function isEventProcessed(db: Database.Database, eventId: string): boolean {
+  return !!db.prepare("SELECT 1 FROM processed_webhook_events WHERE event_id = ?").get(eventId);
+}
+
+export function markEventProcessed(db: Database.Database, eventId: string, eventType: string): void {
+  db.prepare("INSERT OR IGNORE INTO processed_webhook_events (event_id, event_type) VALUES (?, ?)").run(eventId, eventType);
 }

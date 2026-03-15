@@ -38,6 +38,8 @@ import {
   setUserDisplayName,
   getSubscriberByUserId,
   getCumulativeAttribution,
+  isEventProcessed,
+  markEventProcessed,
 } from "./db.js";
 import { betaBannerCSS, betaBannerHTML, betaBannerJS } from "./beta-banner.js";
 import { sendWelcomeEmail, sendFirstRetirementEmail, sendRetirementReceiptEmail } from "../services/email.js";
@@ -941,6 +943,13 @@ ${betaBannerJS()}
       const body = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : req.body;
       event = (typeof body === "string" ? JSON.parse(body) : body) as Stripe.Event;
     }
+
+    // Idempotency: skip duplicate webhook events (Stripe retries)
+    if (isEventProcessed(db, event.id)) {
+      console.log(`Skipping duplicate webhook event: ${event.id} (${event.type})`);
+      return res.json({ received: true });
+    }
+    markEventProcessed(db, event.id, event.type);
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
