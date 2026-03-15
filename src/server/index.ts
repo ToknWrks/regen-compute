@@ -275,6 +275,16 @@ export function startServer(options: { port?: number; dbPath?: string } = {}) {
     res.sendFile("og-card.jpg", { root: process.cwd() });
   });
 
+  // Project images (optimized, served from public/projects/ directory)
+  app.get("/projects/:filename", (req, res) => {
+    const filename = req.params.filename.replace(/[^a-zA-Z0-9._-]/g, "");
+    if (!filename.match(/\.(png|jpg|jpeg|webp)$/i)) {
+      return res.status(404).send("Not found");
+    }
+    res.setHeader("Cache-Control", "public, max-age=31536000");
+    res.sendFile(`public/projects/${filename}`, { root: process.cwd() });
+  });
+
   // Team photos (served from public/team/ directory)
   app.get("/team/:filename", (req, res) => {
     const filename = req.params.filename.replace(/[^a-zA-Z0-9._-]/g, "");
