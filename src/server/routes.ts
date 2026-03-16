@@ -56,7 +56,7 @@ import { getProjectForBatch, PROJECTS } from "./project-metadata.js";
 import { checkAndSendMonthlyReminder, checkTradableStock, sendTelegram } from "../services/admin-telegram.js";
 import { updateRegistryProfile } from "../services/registry-profile.js";
 import { brandFonts, brandCSS, brandHeader, brandFooter } from "./brand.js";
-import { t, SUPPORTED_LANGS, LANG_NAMES, type LangCode } from "./translations.js";
+import { t, SUPPORTED_LANGS, LANG_NAMES, LANG_FLAGS, LANG_SHORT, type LangCode } from "./translations.js";
 
 /** Per-subscriber lock to prevent concurrent retirement execution */
 const _subscriberLocks = new Map<number, Promise<void>>();
@@ -154,6 +154,18 @@ ${SUPPORTED_LANGS.map(l => `  <link rel="alternate" hreflang="${l}" href="${base
   <style>
     ${betaBannerCSS()}
     ${brandCSS()}
+
+    /* Language picker */
+    .lang-picker { position: relative; margin-left: 8px; }
+    .lang-picker__btn { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid var(--regen-gray-200); border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 13px; color: var(--regen-navy); font-family: inherit; transition: border-color 0.2s; }
+    .lang-picker__btn:hover { border-color: var(--regen-green); }
+    .lang-picker__flag { font-size: 16px; line-height: 1; }
+    .lang-picker__code { font-weight: 600; font-size: 12px; }
+    .lang-picker__menu { display: none; position: absolute; right: 0; top: calc(100% + 6px); background: var(--regen-white); border: 1px solid var(--regen-gray-200); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 6px 0; min-width: 200px; max-height: 360px; overflow-y: auto; z-index: 1000; }
+    .lang-picker__menu.open { display: block; }
+    .lang-picker__item { display: flex; align-items: center; gap: 8px; padding: 8px 16px; font-size: 14px; color: var(--regen-navy); text-decoration: none; transition: background 0.15s; }
+    .lang-picker__item:hover { background: var(--regen-gray-50); }
+    .lang-picker__item--active { font-weight: 700; color: var(--regen-green); }
 
     /* How it works */
     .hiw-section { padding: 64px 0; border-top: 1px solid var(--regen-gray-200); }
@@ -393,7 +405,18 @@ ${SUPPORTED_LANGS.map(l => `  <link rel="alternate" hreflang="${l}" href="${base
 
   ${referralValid ? `<div class="regen-ref-banner"><span>${t(lang, "referral_banner_prefix")}</span> ${t(lang, "referral_banner_suffix")}</div>` : ""}
 
-  ${brandHeader({ nav: [{ label: t(lang, "nav_ai_plugin"), href: "/ai-plugin" }, { label: t(lang, "nav_research"), href: "/research" }, { label: t(lang, "nav_about"), href: "/about" }, { label: t(lang, "nav_dashboard"), href: "/dashboard/login" }] })}
+  ${brandHeader({ nav: [{ label: t(lang, "nav_ai_plugin"), href: "/ai-plugin" }, { label: t(lang, "nav_research"), href: "/research" }, { label: t(lang, "nav_about"), href: "/about" }, { label: t(lang, "nav_dashboard"), href: "/dashboard/login" }] }).replace('</nav>', `
+    <div class="lang-picker">
+      <button class="lang-picker__btn" onclick="document.querySelector('.lang-picker__menu').classList.toggle('open')" type="button">
+        <span class="lang-picker__flag">${LANG_FLAGS[lang]}</span>
+        <span class="lang-picker__code">${LANG_SHORT[lang]}</span>
+        <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style="margin-left:2px;"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="lang-picker__menu">
+        ${SUPPORTED_LANGS.map(l => `<a class="lang-picker__item${l === lang ? ' lang-picker__item--active' : ''}" href="${l === 'en' ? '/' : '/' + l}"><span class="lang-picker__flag">${LANG_FLAGS[l]}</span> ${LANG_NAMES[l]}</a>`).join('')}
+      </div>
+    </div>
+  </nav>`)}
 
   <!-- Hero -->
   <section class="regen-hero">
@@ -619,9 +642,6 @@ ${SUPPORTED_LANGS.map(l => `  <link rel="alternate" hreflang="${l}" href="${base
     </div>
   </section>
 
-  <div style="text-align:center;padding:16px 0 8px;">
-  ${SUPPORTED_LANGS.map(l => `<a href="${l === 'en' ? '/' : '/' + l}" style="display:inline-block;margin:4px 6px;font-size:13px;color:${l === lang ? 'var(--regen-green)' : 'var(--regen-gray-500)'};font-weight:${l === lang ? '700' : '400'};text-decoration:none;">${LANG_NAMES[l]}</a>`).join('')}
-  </div>
 
   ${brandFooter({ showInstall: false, links: [
     { label: "Regen Network", href: "https://regen.network" },
@@ -632,6 +652,15 @@ ${SUPPORTED_LANGS.map(l => `  <link rel="alternate" hreflang="${l}" href="${base
   <button onclick="window.location.href='/?view=agent'" style="position:fixed;bottom:24px;right:24px;z-index:9999;background:#1a1a2e;color:#4FB573;border:1px solid #4FB573;border-radius:8px;padding:10px 18px;cursor:pointer;font-family:monospace;font-size:13px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:all 0.2s;" onmouseover="this.style.background='#2a2a4e'" onmouseout="this.style.background='#1a1a2e'">&#129302; Agent View</button>
 
   <script>
+    // Close language picker when clicking outside
+    document.addEventListener('click', function(e) {
+      var menu = document.querySelector('.lang-picker__menu');
+      var btn = document.querySelector('.lang-picker__btn');
+      if (menu && btn && !btn.contains(e.target) && !menu.contains(e.target)) {
+        menu.classList.remove('open');
+      }
+    });
+
     function showOrgForm() {
       document.getElementById('org-cta').style.display = 'none';
       document.getElementById('org-form').style.display = 'block';

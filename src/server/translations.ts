@@ -12,6 +12,20 @@ export const LANG_NAMES: Record<LangCode, string> = {
   it: "Italiano", nl: "Nederlands", pl: "Polski", ms: "Bahasa Melayu", sw: "Kiswahili", uk: "Українська",
 };
 
+export const LANG_FLAGS: Record<LangCode, string> = {
+  en: "\u{1F1EC}\u{1F1E7}", es: "\u{1F1EA}\u{1F1F8}", pt: "\u{1F1E7}\u{1F1F7}", fr: "\u{1F1EB}\u{1F1F7}", de: "\u{1F1E9}\u{1F1EA}",
+  zh: "\u{1F1E8}\u{1F1F3}", ja: "\u{1F1EF}\u{1F1F5}", ko: "\u{1F1F0}\u{1F1F7}", hi: "\u{1F1EE}\u{1F1F3}", ar: "\u{1F1F8}\u{1F1E6}",
+  ru: "\u{1F1F7}\u{1F1FA}", id: "\u{1F1EE}\u{1F1E9}", tr: "\u{1F1F9}\u{1F1F7}", vi: "\u{1F1FB}\u{1F1F3}", th: "\u{1F1F9}\u{1F1ED}",
+  it: "\u{1F1EE}\u{1F1F9}", nl: "\u{1F1F3}\u{1F1F1}", pl: "\u{1F1F5}\u{1F1F1}", ms: "\u{1F1F2}\u{1F1FE}", sw: "\u{1F1F0}\u{1F1EA}", uk: "\u{1F1FA}\u{1F1E6}",
+};
+
+export const LANG_SHORT: Record<LangCode, string> = {
+  en: "EN", es: "ES", pt: "PT", fr: "FR", de: "DE",
+  zh: "ZH", ja: "JA", ko: "KO", hi: "HI", ar: "AR",
+  ru: "RU", id: "ID", tr: "TR", vi: "VI", th: "TH",
+  it: "IT", nl: "NL", pl: "PL", ms: "MS", sw: "SW", uk: "UK",
+};
+
 type TranslationStrings = { [key: string]: string };
 
 export const translations: Record<LangCode, TranslationStrings> = {
