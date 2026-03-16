@@ -543,6 +543,7 @@ ${SUPPORTED_LANGS.map(l => `  <link rel="alternate" hreflang="${l}" href="${base
 
           <button id="org-subscribe-btn" onclick="subscribeOrg()" class="regen-btn regen-btn--solid regen-btn--block" style="font-size:16px;padding:14px;">${t(lang, "org_submit")}</button>
           <p id="org-error" style="color:#c33;font-size:13px;margin:8px 0 0;display:none;text-align:center;"></p>
+          <p style="text-align:center;margin:16px 0 0;font-size:14px;color:var(--regen-gray-500);">Have questions? <a href="https://calendar.app.google/PQV1pY7kjiBPN5eZ8" target="_blank" rel="noopener" style="color:var(--regen-green);font-weight:600;">Schedule a call</a> with our team.</p>
         </div>
       </div>
 
