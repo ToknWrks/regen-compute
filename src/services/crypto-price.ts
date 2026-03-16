@@ -12,14 +12,24 @@ let cache: { prices: Record<string, number>; fetchedAt: number } | null = null;
 const CACHE_TTL_MS = 60_000;
 
 const COINGECKO_URL =
-  "https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,solana,tron&vs_currencies=usd";
+  "https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,solana,tron,avalanche-2,binancecoin,matic-network,mantle,celo,fantom&vs_currencies=usd";
 
 const ID_TO_SYMBOL: Record<string, string> = {
   ethereum: "ETH",
   bitcoin: "BTC",
   solana: "SOL",
   tron: "TRX",
+  "avalanche-2": "AVAX",
+  binancecoin: "BNB",
+  "matic-network": "POL",
+  mantle: "MNT",
+  celo: "CELO",
+  fantom: "FTM",
 };
+
+// --- Token contract price cache ---
+
+let tokenPriceCache: Record<string, { price: number; fetchedAt: number }> = {};
 
 // --- Price fetching ---
 
@@ -46,6 +56,7 @@ export async function getUsdPrices(): Promise<Record<string, number>> {
   const prices: Record<string, number> = {
     USDC: 1,
     USDT: 1,
+    xDAI: 1, // Gnosis chain native token is a stablecoin
   };
 
   for (const [id, symbol] of Object.entries(ID_TO_SYMBOL)) {
@@ -59,11 +70,53 @@ export async function getUsdPrices(): Promise<Record<string, number>> {
   return prices;
 }
 
+// --- Token price by contract address ---
+
+export async function getTokenPriceByContract(
+  coingeckoPlatformId: string,
+  contractAddress: string,
+): Promise<number | null> {
+  const cacheKey = `${coingeckoPlatformId}:${contractAddress.toLowerCase()}`;
+  const now = Date.now();
+  const cached = tokenPriceCache[cacheKey];
+  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.price;
+  }
+
+  const addr = contractAddress.toLowerCase();
+  const url = `https://api.coingecko.com/api/v3/simple/token_price/${coingeckoPlatformId}?contract_addresses=${addr}&vs_currencies=usd`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      // Return cached value if available
+      if (cached) return cached.price;
+      return null;
+    }
+
+    const data = (await res.json()) as Record<string, { usd?: number }>;
+    const price = data[addr]?.usd;
+
+    if (price == null) {
+      return null;
+    }
+
+    tokenPriceCache[cacheKey] = { price, fetchedAt: now };
+    return price;
+  } catch {
+    // Return cached value if available
+    if (cached) return cached.price;
+    return null;
+  }
+}
+
 // --- USD conversion ---
 
 export async function toUsdCents(
   token: string,
   amount: string,
+  contractAddress?: string,
+  coingeckoPlatformId?: string,
 ): Promise<number> {
   const normalizedToken = token.toUpperCase().trim();
   const parsedAmount = parseFloat(amount);
@@ -73,19 +126,31 @@ export async function toUsdCents(
   }
 
   // Stablecoins are always $1
-  if (normalizedToken === "USDC" || normalizedToken === "USDT") {
+  if (normalizedToken === "USDC" || normalizedToken === "USDT" || normalizedToken === "XDAI") {
     return Math.round(parsedAmount * 100);
   }
 
+  // Try known symbols first (native tokens)
   const prices = await getUsdPrices();
-  const price = prices[normalizedToken];
+  const price = prices[normalizedToken] ?? prices[token]; // try exact case too (e.g. "xDAI")
 
-  if (price == null) {
-    throw new Error(
-      `No price available for token "${token}". Supported: ETH, BTC, SOL, TRX, USDC, USDT`,
-    );
+  if (price != null) {
+    const usd = parsedAmount * price;
+    return Math.round(usd * 100);
   }
 
-  const usd = parsedAmount * price;
-  return Math.round(usd * 100);
+  // Try contract address lookup via CoinGecko
+  if (contractAddress && coingeckoPlatformId) {
+    const contractPrice = await getTokenPriceByContract(coingeckoPlatformId, contractAddress);
+    if (contractPrice != null) {
+      const usd = parsedAmount * contractPrice;
+      return Math.round(usd * 100);
+    }
+  }
+
+  throw new Error(
+    `No price available for token "${token}"${contractAddress ? ` (contract: ${contractAddress})` : ""}. ` +
+    `Supported symbols: ${Object.values(ID_TO_SYMBOL).join(", ")}, USDC, USDT. ` +
+    `For other tokens, provide contractAddress and coingeckoPlatformId.`,
+  );
 }

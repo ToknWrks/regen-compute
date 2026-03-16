@@ -1,7 +1,7 @@
 /**
  * Cryptocurrency transaction verification service
  *
- * Verifies payments on Ethereum, Bitcoin, Solana, and Tron by querying
+ * Verifies payments on any EVM chain, Bitcoin, Solana, and Tron by querying
  * public RPCs / APIs. Each verifier checks that the tx sent funds to
  * our receive address and returns structured payment details.
  */
@@ -9,13 +9,14 @@
 // --- Type definitions ---
 
 export interface VerifiedPayment {
-  chain: "ethereum" | "bitcoin" | "solana" | "tron";
+  chain: string;
   txHash: string;
   fromAddress: string;
-  token: string; // "ETH", "USDC", "USDT", "BTC", "SOL", "TRX"
+  token: string; // "ETH", "USDC", "USDT", "BTC", "SOL", "TRX", or "base:0xabcd..." for unknown ERC-20s
   amount: string; // standard units (e.g. "0.5" ETH, "100" USDC)
   confirmed: boolean;
   confirmations: number;
+  contractAddress?: string; // ERC-20 contract address (if applicable)
 }
 
 // --- Receive addresses ---
@@ -27,28 +28,70 @@ const ADDRESSES = {
   tron: "TRNx7dZXm2HNqaUp9oLTSLBhN4tHmsyUfL",
 };
 
-// --- ERC-20 constants ---
+// --- EVM chain configuration ---
 
-const ERC20_CONTRACTS: Record<string, { token: string; decimals: number }> = {
-  "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": {
-    token: "USDC",
-    decimals: 6,
+const EVM_CHAINS: Record<string, { rpcs: string[]; coingeckoId: string; nativeToken: string; nativeDecimals: number }> = {
+  ethereum: { rpcs: ["https://eth.llamarpc.com", "https://rpc.ankr.com/eth"], coingeckoId: "ethereum", nativeToken: "ETH", nativeDecimals: 18 },
+  base: { rpcs: ["https://mainnet.base.org", "https://base.llamarpc.com"], coingeckoId: "base", nativeToken: "ETH", nativeDecimals: 18 },
+  arbitrum: { rpcs: ["https://arb1.arbitrum.io/rpc", "https://arbitrum.llamarpc.com"], coingeckoId: "arbitrum-one", nativeToken: "ETH", nativeDecimals: 18 },
+  polygon: { rpcs: ["https://polygon-rpc.com", "https://polygon.llamarpc.com"], coingeckoId: "polygon-pos", nativeToken: "POL", nativeDecimals: 18 },
+  optimism: { rpcs: ["https://mainnet.optimism.io", "https://optimism.llamarpc.com"], coingeckoId: "optimism", nativeToken: "ETH", nativeDecimals: 18 },
+  avalanche: { rpcs: ["https://api.avax.network/ext/bc/C/rpc", "https://avax.llamarpc.com"], coingeckoId: "avalanche", nativeToken: "AVAX", nativeDecimals: 18 },
+  bnb: { rpcs: ["https://bsc-dataseed.binance.org", "https://binance.llamarpc.com"], coingeckoId: "binance-smart-chain", nativeToken: "BNB", nativeDecimals: 18 },
+  linea: { rpcs: ["https://rpc.linea.build"], coingeckoId: "linea", nativeToken: "ETH", nativeDecimals: 18 },
+  zksync: { rpcs: ["https://mainnet.era.zksync.io"], coingeckoId: "zksync", nativeToken: "ETH", nativeDecimals: 18 },
+  scroll: { rpcs: ["https://rpc.scroll.io"], coingeckoId: "scroll", nativeToken: "ETH", nativeDecimals: 18 },
+  mantle: { rpcs: ["https://rpc.mantle.xyz"], coingeckoId: "mantle", nativeToken: "MNT", nativeDecimals: 18 },
+  blast: { rpcs: ["https://rpc.blast.io"], coingeckoId: "blast", nativeToken: "ETH", nativeDecimals: 18 },
+  celo: { rpcs: ["https://forno.celo.org"], coingeckoId: "celo", nativeToken: "CELO", nativeDecimals: 18 },
+  gnosis: { rpcs: ["https://rpc.gnosischain.com"], coingeckoId: "xdai", nativeToken: "xDAI", nativeDecimals: 18 },
+  fantom: { rpcs: ["https://rpc.ftm.tools"], coingeckoId: "fantom", nativeToken: "FTM", nativeDecimals: 18 },
+  mode: { rpcs: ["https://mainnet.mode.network"], coingeckoId: "mode", nativeToken: "ETH", nativeDecimals: 18 },
+};
+
+export const SUPPORTED_EVM_CHAINS = Object.keys(EVM_CHAINS);
+
+/** Get the CoinGecko platform ID for an EVM chain (for token price lookups) */
+export function getEvmChainCoingeckoId(chain: string): string | undefined {
+  return EVM_CHAINS[chain]?.coingeckoId;
+}
+
+// --- Well-known ERC-20 tokens per chain ---
+
+const WELL_KNOWN_TOKENS: Record<string, Record<string, { symbol: string; decimals: number }>> = {
+  ethereum: {
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": { symbol: "USDC", decimals: 6 },
+    "0xdac17f958d2ee523a2206206994597c13d831ec7": { symbol: "USDT", decimals: 6 },
   },
-  "0xdac17f958d2ee523a2206206994597c13d831ec7": {
-    token: "USDT",
-    decimals: 6,
+  base: {
+    "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": { symbol: "USDC", decimals: 6 },
+  },
+  arbitrum: {
+    "0xaf88d065e77c8cc2239327c5edb3a432268e5831": { symbol: "USDC", decimals: 6 },
+    "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9": { symbol: "USDT", decimals: 6 },
+  },
+  polygon: {
+    "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359": { symbol: "USDC", decimals: 6 },
+    "0xc2132d05d31c914a87c6611c10748aeb04b58e8f": { symbol: "USDT", decimals: 6 },
+  },
+  optimism: {
+    "0x0b2c639c533813f4aa9d7837caf62653d097ff85": { symbol: "USDC", decimals: 6 },
+    "0x94b008aa00579c1307b0ef2c499ad98a8ce58e58": { symbol: "USDT", decimals: 6 },
+  },
+  avalanche: {
+    "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e": { symbol: "USDC", decimals: 6 },
+    "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7": { symbol: "USDT", decimals: 6 },
+  },
+  bnb: {
+    "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d": { symbol: "USDC", decimals: 18 },
+    "0x55d398326f99059ff775485246999027b3197955": { symbol: "USDT", decimals: 18 },
   },
 };
 
+// --- ERC-20 Transfer event topic ---
+
 const TRANSFER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-
-// --- Ethereum RPCs (fallback list) ---
-
-const ETH_RPCS = [
-  "https://eth.llamarpc.com",
-  "https://rpc.ankr.com/eth",
-];
 
 // --- Helpers ---
 
@@ -56,11 +99,12 @@ function hexToDecimal(hex: string): bigint {
   return BigInt(hex);
 }
 
-function weiToEth(wei: bigint): string {
-  const whole = wei / 1000000000000000000n;
-  const frac = wei % 1000000000000000000n;
+function weiToUnits(wei: bigint, decimals: number): string {
+  const divisor = 10n ** BigInt(decimals);
+  const whole = wei / divisor;
+  const frac = wei % divisor;
   if (frac === 0n) return whole.toString();
-  const fracStr = frac.toString().padStart(18, "0").replace(/0+$/, "");
+  const fracStr = frac.toString().padStart(decimals, "0").replace(/0+$/, "");
   return `${whole}.${fracStr}`;
 }
 
@@ -78,14 +122,15 @@ function addressFromTopic(topic: string): string {
   return "0x" + topic.slice(26).toLowerCase();
 }
 
-// --- Ethereum verification ---
+// --- EVM RPC helper ---
 
-async function ethRpcCall(
+async function evmRpcCall(
+  rpcs: string[],
   method: string,
   params: unknown[],
 ): Promise<unknown> {
   let lastError: Error | null = null;
-  for (const rpc of ETH_RPCS) {
+  for (const rpc of rpcs) {
     try {
       const res = await fetch(rpc, {
         method: "POST",
@@ -107,17 +152,76 @@ async function ethRpcCall(
       lastError = err instanceof Error ? err : new Error(String(err));
     }
   }
-  throw lastError ?? new Error("All Ethereum RPCs failed");
+  throw lastError ?? new Error("All RPCs failed");
 }
 
-export async function verifyEthereumTx(
+// --- ERC-20 metadata lookup ---
+
+async function fetchErc20Metadata(
+  rpcs: string[],
+  contractAddress: string,
+): Promise<{ symbol: string; decimals: number }> {
+  let decimals = 18;
+  let symbol = contractAddress;
+
+  // Try to call decimals() — method sig 0x313ce567
+  try {
+    const decResult = await evmRpcCall(rpcs, "eth_call", [
+      { to: contractAddress, data: "0x313ce567" },
+      "latest",
+    ]);
+    if (decResult && typeof decResult === "string" && decResult !== "0x") {
+      decimals = Number(BigInt(decResult));
+    }
+  } catch {
+    // default to 18
+  }
+
+  // Try to call symbol() — method sig 0x95d89b41
+  try {
+    const symResult = await evmRpcCall(rpcs, "eth_call", [
+      { to: contractAddress, data: "0x95d89b41" },
+      "latest",
+    ]);
+    if (symResult && typeof symResult === "string" && symResult.length > 2) {
+      // ABI-encoded string: offset (32 bytes) + length (32 bytes) + data
+      const hex = symResult.slice(2);
+      if (hex.length >= 128) {
+        const len = Number(BigInt("0x" + hex.slice(64, 128)));
+        if (len > 0 && len < 32) {
+          const strHex = hex.slice(128, 128 + len * 2);
+          const decoded = Buffer.from(strHex, "hex").toString("utf8").replace(/\0/g, "");
+          if (decoded.length > 0) {
+            symbol = decoded;
+          }
+        }
+      }
+    }
+  } catch {
+    // use contract address as symbol
+  }
+
+  return { symbol, decimals };
+}
+
+// --- EVM verification (any chain) ---
+
+export async function verifyEvmTx(
+  chain: string,
   txHash: string,
 ): Promise<VerifiedPayment> {
-  // Fetch tx and receipt in parallel
+  const chainConfig = EVM_CHAINS[chain];
+  if (!chainConfig) {
+    throw new Error(`Unknown EVM chain: ${chain}`);
+  }
+
+  const rpcs = chainConfig.rpcs;
+
+  // Fetch tx, receipt, and current block in parallel
   const [txRaw, receiptRaw, blockNumRaw] = await Promise.all([
-    ethRpcCall("eth_getTransactionByHash", [txHash]),
-    ethRpcCall("eth_getTransactionReceipt", [txHash]),
-    ethRpcCall("eth_blockNumber", []),
+    evmRpcCall(rpcs, "eth_getTransactionByHash", [txHash]),
+    evmRpcCall(rpcs, "eth_getTransactionReceipt", [txHash]),
+    evmRpcCall(rpcs, "eth_blockNumber", []),
   ]);
 
   const tx = txRaw as {
@@ -137,71 +241,112 @@ export async function verifyEthereumTx(
     }>;
   } | null;
 
-  if (!tx) throw new Error(`Ethereum tx not found: ${txHash}`);
-  if (!receipt) throw new Error(`Ethereum tx receipt not found (pending?): ${txHash}`);
+  if (!tx) throw new Error(`${chain} tx not found: ${txHash}`);
+  if (!receipt) throw new Error(`${chain} tx receipt not found (pending?): ${txHash}`);
 
   const currentBlock = hexToDecimal(blockNumRaw as string);
   const txBlock = hexToDecimal(receipt.blockNumber);
   const confirmations = Number(currentBlock - txBlock);
   const ourAddr = ADDRESSES.ethereum.toLowerCase();
 
-  // Check for ERC-20 Transfer events to our address first
+  // Check for ERC-20 Transfer events to our address
+  const wellKnown = WELL_KNOWN_TOKENS[chain] ?? {};
+
   for (const log of receipt.logs) {
-    const contractAddr = log.address.toLowerCase();
-    const erc20 = ERC20_CONTRACTS[contractAddr];
-    if (!erc20) continue;
     if (log.topics[0] !== TRANSFER_TOPIC) continue;
     if (log.topics.length < 3) continue;
 
     const toAddr = addressFromTopic(log.topics[2]);
     if (toAddr !== ourAddr) continue;
 
+    const contractAddr = log.address.toLowerCase();
     const amount = hexToDecimal(log.data);
+
+    // Check well-known tokens first
+    const known = wellKnown[contractAddr];
+    if (known) {
+      if (confirmations < 1) {
+        throw new Error(
+          `${chain} ${known.symbol} tx has ${confirmations} confirmations (need >=1)`,
+        );
+      }
+
+      return {
+        chain,
+        txHash,
+        fromAddress: tx.from,
+        token: known.symbol,
+        amount: tokenUnits(amount, known.decimals),
+        confirmed: true,
+        confirmations,
+        contractAddress: contractAddr,
+      };
+    }
+
+    // Unknown ERC-20 — try to fetch metadata from chain
+    const metadata = await fetchErc20Metadata(rpcs, contractAddr);
 
     if (confirmations < 1) {
       throw new Error(
-        `Ethereum ${erc20.token} tx has ${confirmations} confirmations (need ≥1)`,
+        `${chain} ERC-20 tx has ${confirmations} confirmations (need >=1)`,
       );
     }
 
+    // Use chain-prefixed contract address as token name for unknown tokens,
+    // unless we successfully decoded the symbol
+    const tokenName = metadata.symbol !== contractAddr
+      ? metadata.symbol
+      : `${chain}:${contractAddr}`;
+
     return {
-      chain: "ethereum",
+      chain,
       txHash,
       fromAddress: tx.from,
-      token: erc20.token,
-      amount: tokenUnits(amount, erc20.decimals),
+      token: tokenName,
+      amount: tokenUnits(amount, metadata.decimals),
       confirmed: true,
       confirmations,
+      contractAddress: contractAddr,
     };
   }
 
-  // Native ETH transfer
+  // Native token transfer
   if (!tx.to || tx.to.toLowerCase() !== ourAddr) {
     throw new Error(
-      `Ethereum tx recipient ${tx.to} does not match our address ${ADDRESSES.ethereum}`,
+      `${chain} tx recipient ${tx.to} does not match our address ${ADDRESSES.ethereum}`,
     );
   }
 
   const value = hexToDecimal(tx.value);
   if (value === 0n) {
-    throw new Error("Ethereum tx has zero value and no matching ERC-20 transfer");
+    throw new Error(`${chain} tx has zero value and no matching ERC-20 transfer`);
   }
 
-  if (confirmations < 12) {
+  // Native tokens on most chains need fewer confirmations than ETH mainnet
+  const minConfirmations = chain === "ethereum" ? 12 : 1;
+  if (confirmations < minConfirmations) {
     throw new Error(
-      `Ethereum ETH tx has ${confirmations} confirmations (need ≥12)`,
+      `${chain} ${chainConfig.nativeToken} tx has ${confirmations} confirmations (need >=${minConfirmations})`,
     );
   }
 
   return {
-    chain: "ethereum",
+    chain,
     txHash,
     fromAddress: tx.from,
-    token: "ETH",
-    amount: weiToEth(value),
+    token: chainConfig.nativeToken,
+    amount: weiToUnits(value, chainConfig.nativeDecimals),
     confirmed: true,
     confirmations,
   };
+}
+
+// --- Legacy wrapper for backward compatibility ---
+
+export async function verifyEthereumTx(
+  txHash: string,
+): Promise<VerifiedPayment> {
+  return verifyEvmTx("ethereum", txHash);
 }
 
 // --- Bitcoin verification ---
@@ -541,28 +686,42 @@ export async function verifyTronTx(
 
 // --- Main dispatcher ---
 
+/** Chain name aliases for backward compatibility */
+const CHAIN_ALIASES: Record<string, string> = {
+  eth: "ethereum",
+  btc: "bitcoin",
+  sol: "solana",
+  trx: "tron",
+  bsc: "bnb",
+  matic: "polygon",
+  avax: "avalanche",
+  op: "optimism",
+  arb: "arbitrum",
+  ftm: "fantom",
+};
+
 export async function verifyPayment(
   chain: string,
   txHash: string,
 ): Promise<VerifiedPayment> {
-  const normalizedChain = chain.toLowerCase().trim();
+  const normalizedChain = CHAIN_ALIASES[chain.toLowerCase().trim()] ?? chain.toLowerCase().trim();
 
+  // EVM chains
+  if (normalizedChain in EVM_CHAINS) {
+    return verifyEvmTx(normalizedChain, txHash);
+  }
+
+  // Non-EVM chains
   switch (normalizedChain) {
-    case "ethereum":
-    case "eth":
-      return verifyEthereumTx(txHash);
     case "bitcoin":
-    case "btc":
       return verifyBitcoinTx(txHash);
     case "solana":
-    case "sol":
       return verifySolanaTx(txHash);
     case "tron":
-    case "trx":
       return verifyTronTx(txHash);
     default:
       throw new Error(
-        `Unknown chain "${chain}". Supported: ethereum, bitcoin, solana, tron`,
+        `Unknown chain "${chain}". Supported EVM chains: ${SUPPORTED_EVM_CHAINS.join(", ")}. Also: bitcoin, solana, tron`,
       );
   }
 }

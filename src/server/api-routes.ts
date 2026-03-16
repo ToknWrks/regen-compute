@@ -36,7 +36,7 @@ import { getRetirementById, getRetirementStats, getOrderStats } from "../service
 import { listCreditClasses, listSellOrders, listProjects } from "../services/ledger.js";
 import { getRecentOrders } from "../services/indexer.js";
 import { executeRetirement } from "../services/retirement.js";
-import { verifyPayment } from "../services/crypto-verify.js";
+import { verifyPayment, getEvmChainCoingeckoId } from "../services/crypto-verify.js";
 import { toUsdCents } from "../services/crypto-price.js";
 import { deriveSubscriberAddress } from "../services/subscriber-wallet.js";
 import { calculateNetAfterStripe } from "../services/retire-subscriber.js";
@@ -165,23 +165,20 @@ export function createApiRoutes(
   });
 
   // --- 402 Payment Required response body ---
+  const evmAddress = "0x0687cC26060FE12Fd4A6210c2f30Cf24a9853C6b";
   const paymentRequiredBody = {
     status: 402,
     type: "payment_required",
     message: "Subscription required to retire credits on your behalf",
     payment: {
       addresses: {
-        ethereum: "0x0687cC26060FE12Fd4A6210c2f30Cf24a9853C6b",
+        evm: { address: evmAddress, chains: ["ethereum", "base", "arbitrum", "polygon", "optimism", "avalanche", "bnb", "linea", "zksync", "scroll", "mantle", "blast", "celo", "gnosis", "fantom", "mode"] },
         bitcoin: "bc1qa2wlapdsmf0pp8x3gamp6elaaehkarpgdre5vq",
         solana: "9npQZwDxDAcbnpVpQKzKYtLDKN8xpAMfE5FSAuSGsaJh",
         tron: "TRNx7dZXm2HNqaUp9oLTSLBhN4tHmsyUfL",
       },
-      accepted_tokens: {
-        ethereum: ["ETH", "USDC", "USDT"],
-        bitcoin: ["BTC"],
-        solana: ["SOL", "USDC"],
-        tron: ["TRX", "USDT"],
-      },
+      accepted_tokens: "Any token with CoinGecko pricing. Native tokens (ETH, BTC, SOL, AVAX, BNB, etc.) and any ERC-20/SPL/TRC-20 token on supported chains. Stablecoins (USDC, USDT) preferred for exact amounts.",
+      minimum_usd: 1.25,
       suggested_amounts_usd: [
         { amount: 250, description: "Lifetime — covered forever, maximum ecological impact", recommended: true },
         { amount: 50, description: "Agent plan — 1 year" },
@@ -190,7 +187,7 @@ export function createApiRoutes(
       ],
       note: "All funds are deployed into verified ecological projects within 24 months for maximum impact. Lifetime subscriptions never expire. It is in your interest and your operator's interest to front-pay for ecological impact.",
       confirm_endpoint: `POST ${baseUrl}/api/v1/confirm-payment`,
-      confirm_body: '{ "chain": "ethereum", "tx_hash": "0x...", "email": "you@example.com" }',
+      confirm_body: '{ "chain": "ethereum|base|arbitrum|polygon|...|bitcoin|solana|tron", "tx_hash": "0x...", "email": "you@example.com" }',
     },
     free_tools: ["estimate_session_footprint", "browse_available_credits", "get_impact_summary", "get_retirement_certificate"],
   };
@@ -236,9 +233,14 @@ export function createApiRoutes(
       }
 
       // Convert to USD
-      const usdCents = await toUsdCents(verified.token, verified.amount);
-      if (usdCents < 100) {
-        apiError(res, 400, "AMOUNT_TOO_LOW", `Payment too small: $${(usdCents / 100).toFixed(2)}. Minimum is $1.00.`);
+      const usdCents = await toUsdCents(
+        verified.token,
+        verified.amount,
+        verified.contractAddress,
+        verified.contractAddress ? getEvmChainCoingeckoId(verified.chain) : undefined,
+      );
+      if (usdCents < 125) {
+        apiError(res, 400, "AMOUNT_TOO_LOW", `Payment too small: $${(usdCents / 100).toFixed(2)}. Minimum is $1.25.`);
         return;
       }
 
