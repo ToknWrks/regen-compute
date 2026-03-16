@@ -523,32 +523,6 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
     </div>
   </section>
 
-  <!-- Let Your AI Help You Choose -->
-  <section class="hiw-section">
-    <div class="regen-container" style="max-width:640px;text-align:center;">
-      <h2 class="regen-section-title">Let Your AI Assistant Help You Choose</h2>
-      <p style="color:var(--regen-gray-500);margin-bottom:20px;">Copy and paste this into Claude Code or Cursor. It will install the tool if needed and help you pick the right plan.</p>
-      <div style="background:#fff;border:1px solid var(--regen-gray-200);border-radius:10px;padding:16px;position:relative;text-align:left;">
-        <code id="ai-prompt" style="font-size:13px;color:var(--regen-navy);white-space:pre-wrap;display:block;">I want to figure out the right Regenerative Compute plan for me.
-
-First, if you don't already have regen-compute connected, run this:
-  claude mcp add -s user regen-compute -- npx regen-compute
-
-Then estimate my AI usage footprint and recommend a tier ($1.25, $2.50, or $5/mo) based on how much I use you. What do you need to know?</code>
-        <button onclick="navigator.clipboard.writeText(document.getElementById('ai-prompt').textContent).then(function(){this.textContent='Copied!';var b=this;setTimeout(function(){b.textContent='Copy'},1500)}.bind(this))" style="position:absolute;top:12px;right:12px;background:var(--regen-green);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;">Copy</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- One-time / Choose Your Own Credits -->
-  <section class="hiw-section" style="background:var(--regen-gray-50);">
-    <div class="regen-container" style="max-width:640px;text-align:center;">
-      <h2 class="regen-section-title">Prefer a one-time purchase?</h2>
-      <p style="color:var(--regen-gray-500);margin-bottom:24px;">Browse verified ecological credits on the Regen Marketplace and choose exactly which projects to support — pay with a credit card.</p>
-      <a class="regen-btn regen-btn--primary" href="https://app.regen.network/projects/1?buying_options_filters=credit_card" target="_blank" rel="noopener">Let Me Choose</a>
-    </div>
-  </section>
-
   <!-- Live Stats -->
   <section class="stats-section">
     <div class="regen-container">
@@ -632,6 +606,15 @@ Then estimate my AI usage footprint and recommend a tier ($1.25, $2.50, or $5/mo
     </div>
   </section>
   ` : ""}
+
+  <!-- One-time purchase -->
+  <section class="hiw-section" style="background:var(--regen-gray-50);">
+    <div class="regen-container" style="max-width:640px;text-align:center;">
+      <h2 class="regen-section-title">Prefer a one-time purchase?</h2>
+      <p style="color:var(--regen-gray-500);margin-bottom:24px;">Browse verified ecological credits on the Regen Marketplace and choose exactly which projects to support — pay with a credit card.</p>
+      <a class="regen-btn regen-btn--primary" href="https://app.regen.network/projects/1?buying_options_filters=credit_card" target="_blank" rel="noopener">Let Me Choose</a>
+    </div>
+  </section>
 
   ${brandFooter({ showInstall: false, links: [
     { label: "Regen Network", href: "https://regen.network" },
