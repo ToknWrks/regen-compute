@@ -439,17 +439,6 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
     <div class="regen-container">
       <h2 class="regen-section-title" style="text-align:center;">Choose Your Plan</h2>
 
-      <!-- Individual / Organization toggle -->
-      <div style="display:flex;justify-content:center;margin-bottom:16px;">
-        <div id="plan-type-toggle" style="display:inline-flex;background:var(--regen-gray-100);border-radius:10px;padding:4px;">
-          <button id="toggle-individual" onclick="setPlanType('individual')" class="interval-btn interval-btn--active">Individual</button>
-          <button id="toggle-org" onclick="setPlanType('org')" class="interval-btn">Organization</button>
-        </div>
-      </div>
-
-      <!-- Individual pricing (shown by default) -->
-      <div id="individual-pricing">
-
       <!-- Monthly / Yearly toggle -->
       <div style="display:flex;justify-content:center;margin-bottom:28px;">
         <div id="interval-toggle" style="display:inline-flex;background:var(--regen-gray-100);border-radius:10px;padding:4px;">
@@ -486,58 +475,48 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
         </div>
       </div>
 
-      <!-- Custom Amount — inline card under tiers -->
-      <div style="background:var(--regen-white);border:2px solid var(--regen-gray-200);border-radius:var(--regen-radius-lg);padding:20px 28px;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;">
-        <span style="font-weight:700;font-size:15px;color:var(--regen-navy);white-space:nowrap;">Set your own subscription amount</span>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <label style="font-size:15px;color:var(--regen-navy);font-weight:600;">$</label>
-          <input id="custom-amount" type="number" min="1" step="0.50" value="10" style="width:80px;padding:8px 12px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:16px;text-align:center;">
-          <span style="font-size:14px;color:var(--regen-gray-500);">/mo</span>
-        </div>
-        <button onclick="fundCustom()" class="regen-btn regen-btn--solid regen-btn--sm" style="white-space:nowrap;">Subscribe</button>
-        <p id="custom-error" style="color:#c33;font-size:13px;margin:0;display:none;width:100%;text-align:center;"></p>
+      <!-- Team plan CTA -->
+      <div id="org-cta" style="background:var(--regen-white);border:2px solid var(--regen-gray-200);border-radius:var(--regen-radius-lg);padding:20px 28px;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;cursor:pointer;transition:border-color 0.2s;" onclick="showOrgForm()" onmouseover="this.style.borderColor='var(--regen-green)'" onmouseout="this.style.borderColor='var(--regen-gray-200)'">
+        <span style="font-weight:700;font-size:15px;color:var(--regen-navy);white-space:nowrap;">Subscribing for your whole team?</span>
+        <span style="font-size:14px;color:var(--regen-gray-500);">Build a custom plan based on your team size and AI usage.</span>
+        <span class="regen-btn regen-btn--solid regen-btn--sm" style="white-space:nowrap;">Get Started</span>
       </div>
 
-      </div><!-- end individual-pricing -->
-
-      <!-- Organization form (hidden by default) -->
-      <div id="org-pricing" style="display:none;">
-        <div style="max-width:560px;margin:0 auto;">
-          <p style="text-align:center;color:var(--regen-gray-600);margin:0 0 24px;font-size:15px;line-height:1.6;">
-            Tell us about your team and we'll calculate a subscription that covers your organization's AI footprint.
-          </p>
-          <div style="background:var(--regen-white);border:1px solid var(--regen-gray-200);border-radius:var(--regen-radius-lg);padding:28px 32px;">
-            <div style="margin-bottom:18px;">
-              <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Company name</label>
-              <input id="org-name" type="text" placeholder="e.g. Acme Corp" style="width:100%;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;box-sizing:border-box;">
-            </div>
-            <div style="margin-bottom:18px;">
-              <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Full-time developers <span style="font-weight:400;color:var(--regen-gray-500);">— heavy AI usage (coding, debugging, agents)</span></label>
-              <input id="org-devs" type="number" min="0" value="0" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;text-align:center;">
-            </div>
-            <div style="margin-bottom:18px;">
-              <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Autonomous agents <span style="font-weight:400;color:var(--regen-gray-500);">— always-on bots, CI pipelines, agent workflows</span></label>
-              <input id="org-agents" type="number" min="0" value="0" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;text-align:center;">
-            </div>
-            <div style="margin-bottom:24px;">
-              <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Part-time AI users <span style="font-weight:400;color:var(--regen-gray-500);">— occasional AI use for writing, research, email</span></label>
-              <input id="org-parttime" type="number" min="0" value="0" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;text-align:center;">
-            </div>
-
-            <!-- Calculated estimate -->
-            <div id="org-estimate" style="display:none;background:linear-gradient(135deg, rgba(79,181,115,0.06), rgba(16,21,112,0.04));border:1px solid rgba(79,181,115,0.2);border-radius:10px;padding:20px 24px;margin-bottom:20px;">
-              <div style="font-size:13px;color:var(--regen-gray-500);margin-bottom:4px;">Suggested monthly subscription</div>
-              <div style="display:flex;align-items:baseline;gap:8px;">
-                <span id="org-price" style="font-size:32px;font-weight:800;color:var(--regen-navy);">$0</span>
-                <span style="font-size:14px;color:var(--regen-gray-500);">/month</span>
-              </div>
-              <div id="org-breakdown" style="margin-top:10px;font-size:13px;color:var(--regen-gray-600);line-height:1.6;"></div>
-              <div style="margin-top:12px;font-size:12px;color:var(--regen-gray-400);">You can adjust the amount up or down at checkout.</div>
-            </div>
-
-            <button id="org-subscribe-btn" onclick="subscribeOrg()" class="regen-btn regen-btn--solid regen-btn--block" style="font-size:16px;padding:14px;">Subscribe Your Team</button>
-            <p id="org-error" style="color:#c33;font-size:13px;margin:8px 0 0;display:none;text-align:center;"></p>
+      <!-- Organization form (revealed on click) -->
+      <div id="org-form" style="display:none;margin-top:16px;">
+        <div style="background:var(--regen-white);border:1px solid var(--regen-gray-200);border-radius:var(--regen-radius-lg);padding:28px 32px;max-width:560px;margin:0 auto;">
+          <h3 style="margin:0 0 4px;font-size:18px;color:var(--regen-navy);font-weight:700;">Team Plan</h3>
+          <p style="color:var(--regen-gray-500);font-size:14px;margin:0 0 20px;">Tell us about your team and we'll suggest a monthly amount.</p>
+          <div style="margin-bottom:18px;">
+            <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Company name</label>
+            <input id="org-name" type="text" placeholder="e.g. Acme Corp" style="width:100%;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;box-sizing:border-box;">
           </div>
+          <div style="margin-bottom:18px;">
+            <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Full-time developers <span style="font-weight:400;color:var(--regen-gray-500);">— heavy AI usage</span></label>
+            <input id="org-devs" type="number" min="0" value="0" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;text-align:center;">
+          </div>
+          <div style="margin-bottom:18px;">
+            <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Autonomous agents <span style="font-weight:400;color:var(--regen-gray-500);">— always-on bots, CI pipelines</span></label>
+            <input id="org-agents" type="number" min="0" value="0" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;text-align:center;">
+          </div>
+          <div style="margin-bottom:24px;">
+            <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Part-time AI users <span style="font-weight:400;color:var(--regen-gray-500);">— occasional use for writing, research</span></label>
+            <input id="org-parttime" type="number" min="0" value="0" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;text-align:center;">
+          </div>
+
+          <!-- Calculated estimate -->
+          <div id="org-estimate" style="display:none;background:linear-gradient(135deg, rgba(79,181,115,0.06), rgba(16,21,112,0.04));border:1px solid rgba(79,181,115,0.2);border-radius:10px;padding:20px 24px;margin-bottom:20px;">
+            <div style="font-size:13px;color:var(--regen-gray-500);margin-bottom:4px;">Suggested monthly subscription</div>
+            <div style="display:flex;align-items:baseline;gap:8px;">
+              <span id="org-price" style="font-size:32px;font-weight:800;color:var(--regen-navy);">$0</span>
+              <span style="font-size:14px;color:var(--regen-gray-500);">/month</span>
+            </div>
+            <div id="org-breakdown" style="margin-top:10px;font-size:13px;color:var(--regen-gray-600);line-height:1.6;"></div>
+            <div style="margin-top:12px;font-size:12px;color:var(--regen-gray-400);">You can adjust the amount up or down at checkout.</div>
+          </div>
+
+          <button id="org-subscribe-btn" onclick="subscribeOrg()" class="regen-btn regen-btn--solid regen-btn--block" style="font-size:16px;padding:14px;">Subscribe Your Team</button>
+          <p id="org-error" style="color:#c33;font-size:13px;margin:8px 0 0;display:none;text-align:center;"></p>
         </div>
       </div>
 
@@ -663,44 +642,10 @@ Then estimate my AI usage footprint and recommend a tier ($1.25, $2.50, or $5/mo
   <button onclick="window.location.href='/?view=agent'" style="position:fixed;bottom:24px;right:24px;z-index:9999;background:#1a1a2e;color:#4FB573;border:1px solid #4FB573;border-radius:8px;padding:10px 18px;cursor:pointer;font-family:monospace;font-size:13px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:all 0.2s;" onmouseover="this.style.background='#2a2a4e'" onmouseout="this.style.background='#1a1a2e'">&#129302; Agent View</button>
 
   <script>
-    function fundCustom() {
-      var input = document.getElementById('custom-amount');
-      var errEl = document.getElementById('custom-error');
-      var amount = parseFloat(input.value);
-      errEl.style.display = 'none';
-      if (!amount || amount < 1) {
-        errEl.textContent = 'Minimum amount is $1.00';
-        errEl.style.display = 'block';
-        return;
-      }
-      var cents = Math.round(amount * 100);
-      fetch('/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount_cents: cents })
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.url) window.location.href = data.url;
-        else {
-          errEl.textContent = data.error || 'Something went wrong. Is Stripe configured?';
-          errEl.style.display = 'block';
-        }
-      })
-      .catch(function(e) {
-        errEl.textContent = e.message;
-        errEl.style.display = 'block';
-      });
-    }
-  </script>
-
-  <script>
-    function setPlanType(type) {
-      document.getElementById('individual-pricing').style.display = type === 'individual' ? '' : 'none';
-      document.getElementById('org-pricing').style.display = type === 'org' ? '' : 'none';
-      document.getElementById('toggle-individual').className = 'interval-btn' + (type === 'individual' ? ' interval-btn--active' : '');
-      document.getElementById('toggle-org').className = 'interval-btn' + (type === 'org' ? ' interval-btn--active' : '');
-      if (type === 'org') recalcOrg();
+    function showOrgForm() {
+      document.getElementById('org-cta').style.display = 'none';
+      document.getElementById('org-form').style.display = 'block';
+      document.getElementById('org-name').focus();
     }
 
     function recalcOrg() {
