@@ -40,6 +40,12 @@ import {
   getCumulativeAttribution,
   isEventProcessed,
   markEventProcessed,
+  createOrganization,
+  getOrganizationById,
+  getOrganizationBySubscriberId,
+  updateOrganizationPublicity,
+  linkSubscriberToOrg,
+  getPublicOrganizations,
 } from "./db.js";
 import { betaBannerCSS, betaBannerHTML, betaBannerJS } from "./beta-banner.js";
 import { sendWelcomeEmail, sendFirstRetirementEmail, sendRetirementReceiptEmail } from "../services/email.js";
@@ -118,6 +124,7 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
     const stats = await getCachedStats();
     const totalRetirements = stats ? stats.totalRetirements.toLocaleString() : "--";
     const totalOrders = stats ? stats.totalOrders.toLocaleString() : "--";
+    const publicOrgs = getPublicOrganizations(db);
 
     res.setHeader("Content-Type", "text/html");
     res.send(`<!DOCTYPE html>
@@ -432,6 +439,17 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
     <div class="regen-container">
       <h2 class="regen-section-title" style="text-align:center;">Choose Your Plan</h2>
 
+      <!-- Individual / Organization toggle -->
+      <div style="display:flex;justify-content:center;margin-bottom:16px;">
+        <div id="plan-type-toggle" style="display:inline-flex;background:var(--regen-gray-100);border-radius:10px;padding:4px;">
+          <button id="toggle-individual" onclick="setPlanType('individual')" class="interval-btn interval-btn--active">Individual</button>
+          <button id="toggle-org" onclick="setPlanType('org')" class="interval-btn">Organization</button>
+        </div>
+      </div>
+
+      <!-- Individual pricing (shown by default) -->
+      <div id="individual-pricing">
+
       <!-- Monthly / Yearly toggle -->
       <div style="display:flex;justify-content:center;margin-bottom:28px;">
         <div id="interval-toggle" style="display:inline-flex;background:var(--regen-gray-100);border-radius:10px;padding:4px;">
@@ -478,6 +496,49 @@ export function createRoutes(stripe: Stripe | null, db: Database.Database, baseU
         </div>
         <button onclick="fundCustom()" class="regen-btn regen-btn--solid regen-btn--sm" style="white-space:nowrap;">Subscribe</button>
         <p id="custom-error" style="color:#c33;font-size:13px;margin:0;display:none;width:100%;text-align:center;"></p>
+      </div>
+
+      </div><!-- end individual-pricing -->
+
+      <!-- Organization form (hidden by default) -->
+      <div id="org-pricing" style="display:none;">
+        <div style="max-width:560px;margin:0 auto;">
+          <p style="text-align:center;color:var(--regen-gray-600);margin:0 0 24px;font-size:15px;line-height:1.6;">
+            Tell us about your team and we'll calculate a subscription that covers your organization's AI footprint.
+          </p>
+          <div style="background:var(--regen-white);border:1px solid var(--regen-gray-200);border-radius:var(--regen-radius-lg);padding:28px 32px;">
+            <div style="margin-bottom:18px;">
+              <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Company name</label>
+              <input id="org-name" type="text" placeholder="e.g. Acme Corp" style="width:100%;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;box-sizing:border-box;">
+            </div>
+            <div style="margin-bottom:18px;">
+              <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Full-time developers <span style="font-weight:400;color:var(--regen-gray-500);">— heavy AI usage (coding, debugging, agents)</span></label>
+              <input id="org-devs" type="number" min="0" value="0" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;text-align:center;">
+            </div>
+            <div style="margin-bottom:18px;">
+              <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Autonomous agents <span style="font-weight:400;color:var(--regen-gray-500);">— always-on bots, CI pipelines, agent workflows</span></label>
+              <input id="org-agents" type="number" min="0" value="0" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;text-align:center;">
+            </div>
+            <div style="margin-bottom:24px;">
+              <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Part-time AI users <span style="font-weight:400;color:var(--regen-gray-500);">— occasional AI use for writing, research, email</span></label>
+              <input id="org-parttime" type="number" min="0" value="0" style="width:100px;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:15px;text-align:center;">
+            </div>
+
+            <!-- Calculated estimate -->
+            <div id="org-estimate" style="display:none;background:linear-gradient(135deg, rgba(79,181,115,0.06), rgba(16,21,112,0.04));border:1px solid rgba(79,181,115,0.2);border-radius:10px;padding:20px 24px;margin-bottom:20px;">
+              <div style="font-size:13px;color:var(--regen-gray-500);margin-bottom:4px;">Suggested monthly subscription</div>
+              <div style="display:flex;align-items:baseline;gap:8px;">
+                <span id="org-price" style="font-size:32px;font-weight:800;color:var(--regen-navy);">$0</span>
+                <span style="font-size:14px;color:var(--regen-gray-500);">/month</span>
+              </div>
+              <div id="org-breakdown" style="margin-top:10px;font-size:13px;color:var(--regen-gray-600);line-height:1.6;"></div>
+              <div style="margin-top:12px;font-size:12px;color:var(--regen-gray-400);">You can adjust the amount up or down at checkout.</div>
+            </div>
+
+            <button id="org-subscribe-btn" onclick="subscribeOrg()" class="regen-btn regen-btn--solid regen-btn--block" style="font-size:16px;padding:14px;">Subscribe Your Team</button>
+            <p id="org-error" style="color:#c33;font-size:13px;margin:8px 0 0;display:none;text-align:center;"></p>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -580,6 +641,19 @@ Then estimate my AI usage footprint and recommend a tier ($1.25, $2.50, or $5/mo
     </div>
   </section>
 
+  ${publicOrgs.length > 0 ? `
+  <!-- Organizations committed to Regenerative AI -->
+  <section class="hiw-section">
+    <div class="regen-container" style="text-align:center;">
+      <h2 class="regen-section-title">Organizations Committed to Regenerative AI</h2>
+      <p class="regen-section-subtitle">These teams are funding real ecological regeneration alongside their AI usage.</p>
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:20px;margin-top:24px;">
+        ${publicOrgs.map(o => `<div style="background:var(--regen-white);border:1px solid var(--regen-gray-200);border-radius:10px;padding:16px 24px;font-weight:600;color:var(--regen-navy);font-size:15px;">${o.name.replace(/</g, "&lt;")}</div>`).join("")}
+      </div>
+    </div>
+  </section>
+  ` : ""}
+
   ${brandFooter({ showInstall: false, links: [
     { label: "Regen Network", href: "https://regen.network" },
     { label: "Marketplace", href: "https://app.regen.network" },
@@ -610,6 +684,87 @@ Then estimate my AI usage footprint and recommend a tier ($1.25, $2.50, or $5/mo
         if (data.url) window.location.href = data.url;
         else {
           errEl.textContent = data.error || 'Something went wrong. Is Stripe configured?';
+          errEl.style.display = 'block';
+        }
+      })
+      .catch(function(e) {
+        errEl.textContent = e.message;
+        errEl.style.display = 'block';
+      });
+    }
+  </script>
+
+  <script>
+    function setPlanType(type) {
+      document.getElementById('individual-pricing').style.display = type === 'individual' ? '' : 'none';
+      document.getElementById('org-pricing').style.display = type === 'org' ? '' : 'none';
+      document.getElementById('toggle-individual').className = 'interval-btn' + (type === 'individual' ? ' interval-btn--active' : '');
+      document.getElementById('toggle-org').className = 'interval-btn' + (type === 'org' ? ' interval-btn--active' : '');
+      if (type === 'org') recalcOrg();
+    }
+
+    function recalcOrg() {
+      var devs = parseInt(document.getElementById('org-devs').value) || 0;
+      var agents = parseInt(document.getElementById('org-agents').value) || 0;
+      var parttime = parseInt(document.getElementById('org-parttime').value) || 0;
+
+      if (devs + agents + parttime === 0) {
+        document.getElementById('org-estimate').style.display = 'none';
+        return;
+      }
+
+      // Pricing: devs $2.50/mo, agents $5/mo (always-on, highest compute), part-time $1.25/mo
+      var devCost = devs * 250;
+      var agentCost = agents * 500;
+      var ptCost = parttime * 125;
+      var totalCents = devCost + agentCost + ptCost;
+
+      document.getElementById('org-estimate').style.display = 'block';
+      document.getElementById('org-price').textContent = '$' + (totalCents / 100).toFixed(2).replace(/\\.00$/, '');
+
+      var parts = [];
+      if (devs > 0) parts.push(devs + ' developer' + (devs > 1 ? 's' : '') + ' x $2.50');
+      if (agents > 0) parts.push(agents + ' agent' + (agents > 1 ? 's' : '') + ' x $5.00');
+      if (parttime > 0) parts.push(parttime + ' part-time' + ' x $1.25');
+      document.getElementById('org-breakdown').textContent = parts.join(' + ');
+    }
+
+    // Recalculate on any input change
+    ['org-devs', 'org-agents', 'org-parttime'].forEach(function(id) {
+      document.getElementById(id).addEventListener('input', recalcOrg);
+    });
+
+    function subscribeOrg() {
+      var name = document.getElementById('org-name').value.trim();
+      var devs = parseInt(document.getElementById('org-devs').value) || 0;
+      var agents = parseInt(document.getElementById('org-agents').value) || 0;
+      var parttime = parseInt(document.getElementById('org-parttime').value) || 0;
+      var errEl = document.getElementById('org-error');
+      errEl.style.display = 'none';
+
+      if (!name) {
+        errEl.textContent = 'Please enter your company name.';
+        errEl.style.display = 'block';
+        return;
+      }
+      if (devs + agents + parttime === 0) {
+        errEl.textContent = 'Please enter at least one team member or agent.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      var totalCents = (devs * 250) + (agents * 500) + (parttime * 125);
+
+      fetch('/subscribe-org', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ org_name: name, full_time_devs: devs, autonomous_agents: agents, part_time_users: parttime, amount_cents: totalCents })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.url) window.location.href = data.url;
+        else {
+          errEl.textContent = data.error || 'Something went wrong.';
           errEl.style.display = 'block';
         }
       })
@@ -784,6 +939,124 @@ ${betaBannerJS()}
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Subscribe error:", msg);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  /**
+   * POST /subscribe-org
+   * Body: { org_name, full_time_devs, autonomous_agents, part_time_users, amount_cents }
+   * Creates organization record, then a Stripe Checkout Session for the calculated amount.
+   */
+  router.post("/subscribe-org", async (req: Request, res: Response) => {
+    try {
+      const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+      const { org_name, full_time_devs, autonomous_agents, part_time_users, amount_cents } = body ?? {};
+
+      if (!org_name || typeof org_name !== "string" || !org_name.trim()) {
+        res.status(400).json({ error: "org_name is required" });
+        return;
+      }
+
+      const devs = Math.max(0, Math.floor(Number(full_time_devs) || 0));
+      const agents = Math.max(0, Math.floor(Number(autonomous_agents) || 0));
+      const parttime = Math.max(0, Math.floor(Number(part_time_users) || 0));
+
+      if (devs + agents + parttime === 0) {
+        res.status(400).json({ error: "At least one team member or agent is required" });
+        return;
+      }
+
+      // Validate amount — minimum $1
+      const cents = Math.max(100, Math.round(Number(amount_cents) || 0));
+
+      // Create org record (will be linked to subscriber after Stripe checkout completes)
+      const org = createOrganization(db, {
+        name: org_name.trim(),
+        contact_email: "", // filled by webhook when Stripe provides email
+        full_time_devs: devs,
+        autonomous_agents: agents,
+        part_time_users: parttime,
+        suggested_cents: cents,
+      });
+
+      const amountDollars = (cents / 100).toFixed(2);
+
+      const sessionParams: Stripe.Checkout.SessionCreateParams = {
+        mode: "subscription",
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              recurring: { interval: "month" },
+              unit_amount: cents,
+              product_data: {
+                name: `Regenerative Compute — ${org_name.trim()} (Organization)`,
+                description: `Monthly ecological credit retirement for ${devs + agents + parttime} team members/agents`,
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}&type=subscription&org_id=${org.id}`,
+        cancel_url: `${baseUrl}/cancel`,
+        subscription_data: {
+          metadata: {
+            tier: "org",
+            org_id: String(org.id),
+            org_name: org_name.trim(),
+            source: "regen-compute",
+          },
+        },
+      };
+
+      const session = await stripe.checkout.sessions.create(sessionParams);
+      res.json({ url: session.url });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("Subscribe-org error:", msg);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  /**
+   * POST /org/publicity
+   * Body: { org_id: number, opt_in: boolean }
+   * Updates an organization's publicity preference.
+   */
+  router.post("/org/publicity", async (req: Request, res: Response) => {
+    try {
+      const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+      const { org_id, opt_in, session_id } = body ?? {};
+
+      if (!org_id) {
+        res.status(400).json({ error: "org_id is required" });
+        return;
+      }
+
+      // Verify the org exists and the session matches
+      const org = getOrganizationById(db, Number(org_id));
+      if (!org) {
+        res.status(404).json({ error: "Organization not found" });
+        return;
+      }
+
+      updateOrganizationPublicity(db, org.id, !!opt_in);
+
+      // Update contact email if we can resolve it from the session
+      if (session_id) {
+        try {
+          const session = await stripe.checkout.sessions.retrieve(session_id);
+          const email = session.customer_email ?? session.customer_details?.email;
+          if (email) {
+            db.prepare("UPDATE organizations SET contact_email = ?, updated_at = datetime('now') WHERE id = ?").run(email, org.id);
+          }
+        } catch { /* non-critical */ }
+      }
+
+      res.json({ ok: true, publicity_opt_in: !!opt_in });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg });
     }
   });
@@ -1050,6 +1323,7 @@ ${betaBannerJS()}
     try {
       const sessionId = req.query.session_id as string;
       const isSubscription = req.query.type === "subscription";
+      const orgIdParam = req.query.org_id as string | undefined;
       if (!sessionId) {
         res.status(400).send("Missing session_id");
         return;
@@ -1080,6 +1354,10 @@ ${betaBannerJS()}
         const shareUrl = encodeURIComponent(referralLink);
         const twitterUrl = `https://twitter.com/intent/tweet?text=${shareText}&url=${shareUrl}`;
         const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${shareUrl}`;
+
+        // Resolve organization if this is an org subscription
+        const orgId = orgIdParam ? parseInt(orgIdParam, 10) : undefined;
+        const org = orgId ? getOrganizationById(db, orgId) : undefined;
 
         res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -1159,6 +1437,36 @@ export REGEN_BALANCE_URL=${baseUrl}</pre>
         </div>
       </div>
     </div>
+
+    ${org ? `
+    <div class="regen-card" style="margin-top:24px;">
+      <div class="regen-card__body">
+        <h2 style="color:var(--regen-navy);margin:0 0 8px;font-size:18px;font-weight:700;">Share your commitment?</h2>
+        <p style="color:var(--regen-gray-700);font-size:14px;margin:0 0 14px;line-height:1.6;">
+          Would you like us to feature <strong>${org.name.replace(/</g, "&lt;")}</strong> on our website and social media as an organization committed to regenerative AI? This helps inspire others to follow your lead.
+        </p>
+        <div id="publicity-prompt" style="display:flex;gap:10px;align-items:center;">
+          <button onclick="setPublicity(true)" class="regen-btn regen-btn--solid regen-btn--sm">Yes, share it</button>
+          <button onclick="setPublicity(false)" style="background:none;border:none;color:var(--regen-gray-500);font-size:13px;cursor:pointer;text-decoration:underline;">No thanks</button>
+        </div>
+        <div id="publicity-saved" style="display:none;padding:10px 0;color:var(--regen-green);font-weight:600;font-size:14px;"></div>
+      </div>
+    </div>
+    <script>
+    function setPublicity(optIn) {
+      fetch('/org/publicity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ org_id: ${org.id}, opt_in: optIn, session_id: '${sessionId}' })
+      }).then(function(r) { return r.json(); }).then(function(data) {
+        document.getElementById('publicity-prompt').style.display = 'none';
+        var saved = document.getElementById('publicity-saved');
+        saved.style.display = 'block';
+        saved.textContent = optIn ? 'Thank you! We\\'ll feature ${org.name.replace(/'/g, "\\'")} on our site.' : 'No problem — you can change this anytime from your dashboard.';
+      });
+    }
+    </script>
+    ` : ""}
 
     <div class="regen-referral-box">
       <h2>Give a Friend Their First Month Free</h2>
@@ -1684,6 +1992,21 @@ async function handleSubscriptionCreated(db: Database.Database, sub: Stripe.Subs
 
     const subscriber = createSubscriber(db, user.id, stripeSubId, plan, amountCents, periodStart, periodEnd, billingInterval);
     console.log(`Subscription created: ${stripeSubId} plan=${plan} interval=${billingInterval} amount=$${(amountCents / 100).toFixed(2)}`);
+
+    // Link to organization if this is an org subscription
+    const orgId = sub.metadata?.org_id;
+    if (orgId) {
+      try {
+        linkSubscriberToOrg(db, subscriber.id, parseInt(orgId, 10));
+        // Update org contact email
+        if (email) {
+          db.prepare("UPDATE organizations SET contact_email = ?, updated_at = datetime('now') WHERE id = ?").run(email, parseInt(orgId, 10));
+        }
+        console.log(`Subscriber ${subscriber.id} linked to org ${orgId}`);
+      } catch (err) {
+        console.error(`Failed to link subscriber to org ${orgId}:`, err instanceof Error ? err.message : err);
+      }
+    }
 
     // Derive and store Regen address for this subscriber
     try {

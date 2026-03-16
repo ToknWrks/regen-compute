@@ -286,6 +286,22 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
       event_type TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS organizations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      contact_email TEXT NOT NULL,
+      full_time_devs INTEGER NOT NULL DEFAULT 0,
+      autonomous_agents INTEGER NOT NULL DEFAULT 0,
+      part_time_users INTEGER NOT NULL DEFAULT 0,
+      suggested_cents INTEGER NOT NULL,
+      publicity_opt_in INTEGER NOT NULL DEFAULT 0,
+      logo_url TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_organizations_contact_email ON organizations(contact_email);
   `);
 
   // Migrations for existing DBs — add billing_interval to subscribers table
@@ -476,6 +492,12 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
   if (!burnCols.includes("subscriber_id")) {
     _db.exec(`ALTER TABLE burn_accumulator ADD COLUMN subscriber_id INTEGER`);
     console.log("Migration: added subscriber_id column to burn_accumulator");
+  }
+
+  // Migration: add org_id to subscribers for organization subscriptions (#55)
+  if (!subCols.includes("org_id")) {
+    _db.exec(`ALTER TABLE subscribers ADD COLUMN org_id INTEGER REFERENCES organizations(id)`);
+    console.log("Migration: added org_id column to subscribers");
   }
 
   return _db;
@@ -1405,4 +1427,54 @@ export function isEventProcessed(db: Database.Database, eventId: string): boolea
 
 export function markEventProcessed(db: Database.Database, eventId: string, eventType: string): void {
   db.prepare("INSERT OR IGNORE INTO processed_webhook_events (event_id, event_type) VALUES (?, ?)").run(eventId, eventType);
+}
+
+// --- Organization helpers (#55) ---
+
+export interface Organization {
+  id: number;
+  name: string;
+  contact_email: string;
+  full_time_devs: number;
+  autonomous_agents: number;
+  part_time_users: number;
+  suggested_cents: number;
+  publicity_opt_in: number;
+  logo_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function createOrganization(
+  db: Database.Database,
+  org: { name: string; contact_email: string; full_time_devs: number; autonomous_agents: number; part_time_users: number; suggested_cents: number },
+): Organization {
+  const result = db.prepare(
+    `INSERT INTO organizations (name, contact_email, full_time_devs, autonomous_agents, part_time_users, suggested_cents) VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(org.name, org.contact_email, org.full_time_devs, org.autonomous_agents, org.part_time_users, org.suggested_cents);
+  return db.prepare("SELECT * FROM organizations WHERE id = ?").get(result.lastInsertRowid) as Organization;
+}
+
+export function getOrganizationById(db: Database.Database, id: number): Organization | undefined {
+  return db.prepare("SELECT * FROM organizations WHERE id = ?").get(id) as Organization | undefined;
+}
+
+export function getOrganizationBySubscriberId(db: Database.Database, subscriberId: number): Organization | undefined {
+  return db.prepare(
+    "SELECT o.* FROM organizations o JOIN subscribers s ON s.org_id = o.id WHERE s.id = ?"
+  ).get(subscriberId) as Organization | undefined;
+}
+
+export function updateOrganizationPublicity(db: Database.Database, orgId: number, optIn: boolean): void {
+  db.prepare("UPDATE organizations SET publicity_opt_in = ?, updated_at = datetime('now') WHERE id = ?").run(optIn ? 1 : 0, orgId);
+}
+
+export function linkSubscriberToOrg(db: Database.Database, subscriberId: number, orgId: number): void {
+  db.prepare("UPDATE subscribers SET org_id = ? WHERE id = ?").run(orgId, subscriberId);
+}
+
+export function getPublicOrganizations(db: Database.Database): Organization[] {
+  return db.prepare(
+    "SELECT o.* FROM organizations o JOIN subscribers s ON s.org_id = o.id WHERE o.publicity_opt_in = 1 AND s.status = 'active' ORDER BY o.created_at ASC"
+  ).all() as Organization[];
 }
