@@ -1,15 +1,16 @@
 // Landing page translations for Regenerative Compute
 // 21 languages: en + 20 translations
 
-export type LangCode = "en" | "es" | "pt" | "fr" | "de" | "zh" | "ja" | "ko" | "hi" | "ar" | "ru" | "id" | "tr" | "vi" | "th" | "it" | "nl" | "pl" | "ms" | "sw" | "uk";
+export type LangCode = "en" | "es" | "pt" | "fr" | "de" | "zh" | "ja" | "ko" | "hi" | "ar" | "ru" | "id" | "tr" | "vi" | "th" | "it" | "nl" | "pl" | "ms" | "sw" | "uk" | "ur";
 
-export const SUPPORTED_LANGS: LangCode[] = ["en", "es", "pt", "fr", "de", "zh", "ja", "ko", "hi", "ar", "ru", "id", "tr", "vi", "th", "it", "nl", "pl", "ms", "sw", "uk"];
+export const SUPPORTED_LANGS: LangCode[] = ["en", "es", "pt", "fr", "de", "zh", "ja", "ko", "hi", "ar", "ru", "id", "tr", "vi", "th", "it", "nl", "pl", "ms", "sw", "uk", "ur"];
 
 export const LANG_NAMES: Record<LangCode, string> = {
   en: "English", es: "Español", pt: "Português", fr: "Français", de: "Deutsch",
   zh: "中文", ja: "日本語", ko: "한국어", hi: "हिन्दी", ar: "العربية",
   ru: "Русский", id: "Bahasa Indonesia", tr: "Türkçe", vi: "Tiếng Việt", th: "ไทย",
   it: "Italiano", nl: "Nederlands", pl: "Polski", ms: "Bahasa Melayu", sw: "Kiswahili", uk: "Українська",
+  ur: "اردو",
 };
 
 export const LANG_FLAGS: Record<LangCode, string> = {
@@ -17,6 +18,7 @@ export const LANG_FLAGS: Record<LangCode, string> = {
   zh: "\u{1F1E8}\u{1F1F3}", ja: "\u{1F1EF}\u{1F1F5}", ko: "\u{1F1F0}\u{1F1F7}", hi: "\u{1F1EE}\u{1F1F3}", ar: "\u{1F1F8}\u{1F1E6}",
   ru: "\u{1F1F7}\u{1F1FA}", id: "\u{1F1EE}\u{1F1E9}", tr: "\u{1F1F9}\u{1F1F7}", vi: "\u{1F1FB}\u{1F1F3}", th: "\u{1F1F9}\u{1F1ED}",
   it: "\u{1F1EE}\u{1F1F9}", nl: "\u{1F1F3}\u{1F1F1}", pl: "\u{1F1F5}\u{1F1F1}", ms: "\u{1F1F2}\u{1F1FE}", sw: "\u{1F1F0}\u{1F1EA}", uk: "\u{1F1FA}\u{1F1E6}",
+  ur: "\u{1F1F5}\u{1F1F0}",
 };
 
 export const LANG_SHORT: Record<LangCode, string> = {
@@ -24,6 +26,7 @@ export const LANG_SHORT: Record<LangCode, string> = {
   zh: "ZH", ja: "JA", ko: "KO", hi: "HI", ar: "AR",
   ru: "RU", id: "ID", tr: "TR", vi: "VI", th: "TH",
   it: "IT", nl: "NL", pl: "PL", ms: "MS", sw: "SW", uk: "UK",
+  ur: "UR",
 };
 
 type TranslationStrings = { [key: string]: string };
@@ -1876,6 +1879,93 @@ export const translations: Record<LangCode, TranslationStrings> = {
     nav_research: "Дослідження",
     nav_about: "Про Нас",
     nav_dashboard: "Панель Керування",
+  },
+  ur: {
+    page_title: "ری جنریٹو کمپیوٹ — اپنے AI سیشنز سے ماحولیاتی تجدید کی مالی معاونت کریں",
+    page_description: "آپ کے AI کا ماحولیاتی نقش ہے۔ ری جنریٹو کمپیوٹ ایک چھوٹی ماہانہ رقم تصدیق شدہ جنگلات، مٹی اور حیاتیاتی تنوع کے منصوبوں میں لگاتا ہے — مستقل، قابل تصدیق ثبوت کے ساتھ۔",
+    hero_label: "Claude، Cursor اور ChatGPT صارفین کے لیے",
+    hero_title: "آپ کے AI کا ایک نقش ہے۔",
+    hero_title_highlight: "ماحولیاتی تجدید کی مالی معاونت کریں",
+    hero_title_suffix: "اسے متوازن کرنے کے لیے۔",
+    hero_desc: "ہر AI سیشن توانائی استعمال کرتا ہے۔ ری جنریٹو کمپیوٹ ایک چھوٹی ماہانہ رقم تصدیق شدہ ماحولیاتی منصوبوں میں لگاتا ہے — جنگلات، مٹی، حیاتیاتی تنوع — مستقل، قابل تصدیق ثبوت کے ساتھ۔",
+    hero_cta: "اپنا پلان منتخب کریں",
+    impact_prefix: "ایک روزانہ AI صارف پیدا کرتا ہے",
+    impact_co2_daily: "2–10 کلو CO₂/سال",
+    impact_middle: "ایجنٹ ورک فلوز:",
+    impact_co2_agentic: "335 کلو تک",
+    impact_link: "تحقیق دیکھیں →",
+    hiw_title: "یہ کیسے کام کرتا ہے",
+    hiw_step1_title: "سبسکرائب کریں",
+    hiw_step1_desc: "ایک پلان منتخب کریں — ماہانہ یا سالانہ۔ آپ کی ادائیگی دنیا بھر میں تصدیق شدہ ماحولیاتی منصوبوں کی مالی معاونت کرتی ہے۔",
+    hiw_step2_title: "جوڑیں",
+    hiw_step2_desc: "ری جنریٹو کمپیوٹ کو اپنے AI اسسٹنٹ میں ایک کمانڈ سے شامل کریں۔ Claude Code، Cursor اور مزید کے ساتھ کام کرتا ہے۔",
+    hiw_step3_title: "اپنا اثر ٹریک کریں",
+    hiw_step3_desc: "بالکل دیکھیں کہ آپ کن منصوبوں کی حمایت کرتے ہیں۔ ہر کریڈٹ ریٹائرمنٹ عوامی طور پر ریکارڈ اور قابل تصدیق ہے۔",
+    pricing_title: "اپنا پلان منتخب کریں",
+    toggle_monthly: "ماہانہ",
+    toggle_yearly: "سالانہ",
+    toggle_save: "17% بچائیں",
+    tier_dabbler: "ڈیبلر",
+    tier_dabbler_desc: "آپ ہفتے میں چند بار AI استعمال کرتے ہیں۔ یہ آپ کا حصہ پورا کرتا ہے اور حقیقی ماحولیاتی منصوبوں کی مالی معاونت کرتا ہے۔",
+    tier_builder: "بلڈر",
+    tier_builder_badge: "سب سے مقبول",
+    tier_builder_desc: "AI آپ کے روزمرہ کے کام کا حصہ ہے۔ باقاعدہ استعمال کے لیے مکمل ماحولیاتی ذمہ داری۔",
+    tier_agent: "ایجنٹ",
+    tier_agent_desc: "خودمختار ایجنٹس اور پاور صارفین کے لیے — زیادہ سے زیادہ خودمختاری، زیادہ سے زیادہ اثر۔",
+    tier_cta: "سبسکرائب کریں",
+    tier_first_month_free: "پہلا مہینہ مفت!",
+    tier_yearly_bonus: "2 مہینے مفت",
+    org_cta_heading: "اپنی پوری ٹیم کے لیے سبسکرائب کر رہے ہیں؟",
+    org_cta_desc: "اپنی ٹیم کے سائز اور AI استعمال کی بنیاد پر حسب ضرورت پلان بنائیں۔",
+    org_cta_btn: "شروع کریں",
+    org_title: "ٹیم پلان",
+    org_desc: "ہمیں اپنی ٹیم کے بارے میں بتائیں اور ہم ماہانہ رقم تجویز کریں گے۔",
+    org_label_name: "کمپنی کا نام",
+    org_placeholder_name: "مثلاً ایکمی کارپ",
+    org_label_devs: "کل وقتی ڈویلپرز",
+    org_hint_devs: "— بھاری AI استعمال",
+    org_label_agents: "خودمختار ایجنٹس",
+    org_hint_agents: "— ہمیشہ چلنے والے بوٹس، CI پائپ لائنز",
+    org_label_parttime: "جزوقتی AI صارفین",
+    org_hint_parttime: "— کبھی کبھار تحریر، تحقیق کے لیے استعمال",
+    org_estimate_label: "تجویز کردہ ماہانہ سبسکرپشن",
+    org_estimate_unit: "/ماہ",
+    org_estimate_note: "آپ چیک آؤٹ کے وقت رقم کم یا زیادہ کر سکتے ہیں۔",
+    org_submit: "اپنی ٹیم سبسکرائب کریں",
+    stats_title: "حقیقی اثر، عوامی طور پر تصدیق شدہ",
+    stats_desc: "تمام کریڈٹ ریٹائرمنٹس ریجن نیٹ ورک پر ہوتی ہیں، ایک عوامی ماحولیاتی لیجر۔ یہ اعداد و شمار حقیقی وقت میں اپ ڈیٹ ہوتے ہیں۔",
+    stats_credits: "آن چین ریٹائر شدہ کریڈٹس",
+    stats_countries: "ممالک",
+    stats_credit_types: "ماحولیاتی کریڈٹ کی اقسام",
+    basket_title: "آپ کی سبسکرپشن کیا فنڈ کرتی ہے",
+    basket_desc: "ہر ماہ، ان منصوبوں سے تصدیق شدہ ماحولیاتی کریڈٹس آپ کی جانب سے ریجن لیجر پر مستقل طور پر ریٹائر کیے جاتے ہیں۔ ہر ریٹائرمنٹ آن چین، قابل آڈٹ اور آپ کی ہے۔",
+    basket_view_project: "منصوبہ دیکھیں →",
+    basket_credit_class: "کریڈٹ کلاس",
+    trust_title: "ری جنریٹو کمپیوٹ کیوں",
+    trust_auditable_title: "عوامی طور پر قابل آڈٹ",
+    trust_auditable_desc: "ہر کریڈٹ ریٹائرمنٹ عوامی لیجر پر ریکارڈ ہے۔ کوئی بھی تصدیق کر سکتا ہے۔ دوہری گنتی نہیں، گرین واشنگ نہیں۔",
+    trust_beyond_title: "کاربن آفسیٹس سے آگے",
+    trust_beyond_desc: "تجدیدی شراکت حقیقی ماحولیاتی منصوبوں کی مالی معاونت کرتی ہے — کاربن ہٹانا، حیاتیاتی تنوع کا تحفظ، اور مٹی کی صحت۔",
+    trust_open_title: "اوپن سورس اور شفاف",
+    trust_open_desc: "کوڈ عوامی ہے۔ ریٹائرمنٹس عوامی ہیں۔ منصوبے عوامی ہیں۔ کسی بھی وقت کچھ بھی جانچیں۔",
+    orgs_title: "تجدیدی AI کے لیے پرعزم تنظیمیں",
+    orgs_desc: "یہ ٹیمیں اپنے AI استعمال کے ساتھ حقیقی ماحولیاتی تجدید کی مالی معاونت کر رہی ہیں۔",
+    onetime_title: "ایک بار کی خریداری ترجیح دیتے ہیں؟",
+    onetime_desc: "ریجن مارکیٹ پلیس پر تصدیق شدہ ماحولیاتی کریڈٹس براؤز کریں اور بالکل منتخب کریں کہ کن منصوبوں کی حمایت کرنی ہے — کریڈٹ کارڈ سے ادائیگی کریں۔",
+    onetime_cta: "میں خود منتخب کروں",
+    nudge_title: "سالانہ پر غور کریں",
+    nudge_reason1_title: "پیسے بچائیں",
+    nudge_reason1_desc: "— سالانہ پلان دو مہینے مفت ملنے جیسا ہے۔",
+    nudge_reason2_title: "زیادہ ماحولیاتی اثر",
+    nudge_reason2_desc: "— کم لین دین سے، کم رقم ادائیگی پروسیسنگ فیس میں جاتی ہے اور زیادہ رقم تصدیق شدہ ماحولیاتی تجدید کی مالی معاونت کرتی ہے۔",
+    nudge_cta_yearly: "سالانہ پر جائیں اور بچائیں",
+    nudge_cta_monthly: "ماہانہ جاری رکھیں",
+    referral_banner_prefix: "آپ کے دوست نے آپ کو مدعو کیا",
+    referral_banner_suffix: "— پہلا مہینہ مفت!",
+    nav_ai_plugin: "AI پلگ ان",
+    nav_research: "تحقیق",
+    nav_about: "ہمارے بارے میں",
+    nav_dashboard: "ڈیش بورڈ",
   },
 };
 
