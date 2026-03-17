@@ -16,6 +16,7 @@
  */
 
 import express from "express";
+import helmet from "helmet";
 import Stripe from "stripe";
 import { getDb } from "./db.js";
 import { createRoutes } from "./routes.js";
@@ -331,6 +332,11 @@ export function startServer(options: { port?: number; dbPath?: string } = {}) {
   // JSON + URL-encoded body parsing
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
+
+  // Security headers (relaxed CSP since we use inline scripts extensively)
+  app.use(helmet({
+    contentSecurityPolicy: false,
+  }));
 
   // Mount routes (landing page, feedback, cancel, checkout-page always work;
   // Stripe-dependent routes like /subscribe, /checkout, /webhook, /success, /manage

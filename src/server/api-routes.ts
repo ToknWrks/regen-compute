@@ -199,9 +199,26 @@ export function createApiRoutes(
     res.json(paymentRequiredBody.payment);
   });
 
+  // Rate limiter for confirm-payment endpoint (10 req/min per IP)
+  const confirmPaymentLimiter = new Map<string, { count: number; windowStart: number }>();
+
   // POST /api/v1/confirm-payment — agent confirms a crypto payment
   router.post("/api/v1/confirm-payment", async (req: Request, res: Response) => {
     try {
+      // IP-based rate limiting
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      const rlNow = Date.now();
+      const rlWindow = confirmPaymentLimiter.get(ip);
+      if (rlWindow && rlNow - rlWindow.windowStart < 60_000 && rlWindow.count >= 10) {
+        apiError(res, 429, "RATE_LIMITED", "Too many payment confirmation attempts. Try again in a minute.");
+        return;
+      }
+      if (!rlWindow || rlNow - rlWindow.windowStart >= 60_000) {
+        confirmPaymentLimiter.set(ip, { count: 1, windowStart: rlNow });
+      } else {
+        rlWindow.count++;
+      }
+
       const { chain, tx_hash, email } = req.body ?? {};
 
       if (!chain || typeof chain !== "string") {
@@ -218,7 +235,7 @@ export function createApiRoutes(
       if (existing) {
         if (existing.status === "provisioned" && existing.user_id) {
           const user = db.prepare("SELECT * FROM users WHERE id = ?").get(existing.user_id) as User | undefined;
-          res.json({ status: "already_provisioned", api_key: user?.api_key, message: "This payment has already been processed." });
+          res.json({ status: "already_provisioned", message: "This payment has already been processed. Check your email for your API key." });
         } else {
           res.json({ status: existing.status, message: "This transaction has already been recorded." });
         }

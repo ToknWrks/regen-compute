@@ -804,7 +804,7 @@ ${SUPPORTED_LANGS.map(l => `  <link rel="alternate" hreflang="${l}" href="${base
 
     function doSubscribe(tier, interval) {
       var body = { tier: tier, interval: interval };
-      ${refCode ? `body.referral_code = ${JSON.stringify(refCode)};` : ""}
+      ${refCode ? `body.referral_code = ${JSON.stringify(refCode).replace(/</g, "\\u003c")};` : ""}
       fetch('/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -920,7 +920,7 @@ ${betaBannerJS()}
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Subscribe error:", msg);
-      res.status(500).json({ error: msg });
+      res.status(500).json({ error: "An internal error occurred. Please try again." });
     }
   });
 
@@ -996,7 +996,7 @@ ${betaBannerJS()}
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Subscribe-org error:", msg);
-      res.status(500).json({ error: msg });
+      res.status(500).json({ error: "An internal error occurred. Please try again." });
     }
   });
 
@@ -1038,7 +1038,8 @@ ${betaBannerJS()}
       res.json({ ok: true, publicity_opt_in: !!opt_in });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: msg });
+      console.error("Org publicity error:", msg);
+      res.status(500).json({ error: "An internal error occurred. Please try again." });
     }
   });
 
@@ -1093,7 +1094,7 @@ ${betaBannerJS()}
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Checkout error:", msg);
-      res.status(500).json({ error: msg });
+      res.status(500).json({ error: "An internal error occurred. Please try again." });
     }
   });
 
@@ -1165,7 +1166,7 @@ ${betaBannerJS()}
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Boost checkout error:", msg);
-      res.status(500).json({ error: msg });
+      res.status(500).json({ error: "An internal error occurred. Please try again." });
     }
   });
 
@@ -1217,7 +1218,7 @@ ${betaBannerJS()}
       let user = email ? getUserByEmail(db, email) : undefined;
       if (!user) {
         user = createUser(db, email, stripeCustomerId);
-        console.log(`New user created: ${user.api_key} (${email})`);
+        console.log(`New user created: ${user.api_key.slice(0, 12)}... (${email})`);
       }
 
       // Extract billing interval from the Stripe subscription (if subscription mode)
@@ -1424,7 +1425,7 @@ export REGEN_BALANCE_URL=${baseUrl}</pre>
       <div class="regen-card__body">
         <h2 style="color:var(--regen-navy);margin:0 0 8px;font-size:18px;font-weight:700;">Share your commitment?</h2>
         <p style="color:var(--regen-gray-700);font-size:14px;margin:0 0 14px;line-height:1.6;">
-          Would you like us to feature <strong>${org.name.replace(/</g, "&lt;")}</strong> on our website and social media as an organization committed to regenerative AI? This helps inspire others to follow your lead.
+          Would you like us to feature <strong>${escapeHtml(org.name)}</strong> on our website and social media as an organization committed to regenerative AI? This helps inspire others to follow your lead.
         </p>
         <div id="publicity-prompt" style="display:flex;gap:10px;align-items:center;">
           <button onclick="setPublicity(true)" class="regen-btn regen-btn--solid regen-btn--sm">Yes, share it</button>
@@ -1438,12 +1439,12 @@ export REGEN_BALANCE_URL=${baseUrl}</pre>
       fetch('/org/publicity', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ org_id: ${org.id}, opt_in: optIn, session_id: '${sessionId}' })
+        body: JSON.stringify({ org_id: ${org.id}, opt_in: optIn, session_id: ${JSON.stringify(sessionId).replace(/</g, "\\u003c")} })
       }).then(function(r) { return r.json(); }).then(function(data) {
         document.getElementById('publicity-prompt').style.display = 'none';
         var saved = document.getElementById('publicity-saved');
         saved.style.display = 'block';
-        saved.textContent = optIn ? 'Thank you! We\\'ll feature ${org.name.replace(/'/g, "\\'")} on our site.' : 'No problem — you can change this anytime from your dashboard.';
+        saved.textContent = optIn ? 'Thank you! We\\'ll feature ' + ${JSON.stringify(org.name).replace(/</g, "\\u003c")} + ' on our site.' : 'No problem — you can change this anytime from your dashboard.';
       });
     }
     </script>
@@ -1495,7 +1496,7 @@ export REGEN_BALANCE_URL=${baseUrl}</pre>
       fetch('/profile/display-name', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: '${sessionId}', display_name: name })
+        body: JSON.stringify({ session_id: ${JSON.stringify(sessionId).replace(/</g, "\\u003c")}, display_name: name })
       }).then(function(r) { return r.json(); }).then(function(data) {
         if (data.ok) {
           document.getElementById('profilePrompt').style.display = 'none';
@@ -1523,7 +1524,7 @@ export REGEN_BALANCE_URL=${baseUrl}</pre>
       fetch('/profile/display-name', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: '${sessionId}', display_name: 'My On-Chain Proof' })
+        body: JSON.stringify({ session_id: ${JSON.stringify(sessionId).replace(/</g, "\\u003c")}, display_name: 'My On-Chain Proof' })
       }).catch(function() {});
     }
   </script>
@@ -1956,7 +1957,7 @@ async function handleSubscriptionCreated(db: Database.Database, sub: Stripe.Subs
     let user = email ? getUserByEmail(db, email) : undefined;
     if (!user) {
       user = createUser(db, email, customerId ?? null);
-      console.log(`New user created for subscription: ${user.api_key} (${email})`);
+      console.log(`New user created for subscription: ${user.api_key.slice(0, 12)}... (${email})`);
     }
 
     const priceItem = sub.items?.data?.[0]?.price;
