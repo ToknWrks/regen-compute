@@ -271,9 +271,30 @@ export function createApiRoutes(
         usd_value_cents: usdCents,
       });
 
-      // Find or create user
+      // Find or create user — bind from_address to prevent front-running
       const contactEmail = (typeof email === "string" && email.includes("@")) ? email.trim().toLowerCase() : null;
-      let user = contactEmail ? getUserByEmail(db, contactEmail) : undefined;
+      let user: User | undefined;
+
+      // Check if this sender address already has an associated user
+      if (verified.fromAddress) {
+        const existingPayment = db.prepare(
+          "SELECT user_id FROM crypto_payments WHERE from_address = ? AND user_id IS NOT NULL AND status = 'provisioned' LIMIT 1"
+        ).get(verified.fromAddress) as { user_id: number } | undefined;
+
+        if (existingPayment) {
+          // This address already belongs to a user — use that account
+          user = db.prepare("SELECT * FROM users WHERE id = ?").get(existingPayment.user_id) as User | undefined;
+          if (user && contactEmail && user.email && user.email.toLowerCase() !== contactEmail) {
+            // Different email trying to claim payments from an address that belongs to someone else
+            apiError(res, 403, "ADDRESS_BOUND", "This sender address is already associated with a different account.");
+            return;
+          }
+        }
+      }
+
+      if (!user) {
+        user = contactEmail ? getUserByEmail(db, contactEmail) : undefined;
+      }
       if (!user) {
         user = createUser(db, contactEmail, null);
       }
