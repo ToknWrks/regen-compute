@@ -65,8 +65,13 @@ export function brandFonts(): string {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-CGCVGY357V"></script>
-<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-CGCVGY357V');</script>`;
+<script>
+window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}
+gtag('consent','default',{analytics_storage:'denied',ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied',wait_for_update:500});
+if(localStorage.getItem('regen_consent')==='granted'){gtag('consent','update',{analytics_storage:'granted'});}
+gtag('js',new Date());gtag('config','G-CGCVGY357V');
+</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-CGCVGY357V"></script>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -573,5 +578,32 @@ export function brandFooter(opts?: FooterOptions): string {
 
       <div class="regen-footer__legal">&copy; ${new Date().getFullYear()} Regen Network Development, PBC. Licensed under <a href="https://github.com/regen-network/regen-compute/blob/main/LICENSE" target="_blank" rel="noopener">Apache 2.0</a>.</div>
     </footer>
+
+    <div id="consent-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:10000;background:#fff;border-top:1px solid #e5e7eb;padding:14px 24px;box-shadow:0 -2px 12px rgba(0,0,0,0.08);font-family:'Inter',Arial,sans-serif;font-size:13px;color:#374151;">
+      <div style="max-width:960px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <p style="margin:0;line-height:1.5;flex:1;min-width:200px;">We use cookies to understand how visitors use our site. No data is sold or used for ads. <a href="https://regen.network/privacy-policy" target="_blank" rel="noopener" style="color:#4FB573;">Privacy Policy</a></p>
+        <div style="display:flex;gap:8px;flex-shrink:0;">
+          <button onclick="acceptConsent()" style="background:#4FB573;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer;">Accept</button>
+          <button onclick="declineConsent()" style="background:none;color:#9ca3af;border:1px solid #e5e7eb;border-radius:6px;padding:8px 14px;font-size:13px;cursor:pointer;">Decline</button>
+        </div>
+      </div>
+    </div>
+    <script>
+    function acceptConsent(){
+      localStorage.setItem('regen_consent','granted');
+      gtag('consent','update',{analytics_storage:'granted'});
+      document.getElementById('consent-banner').style.display='none';
+    }
+    function declineConsent(){
+      localStorage.setItem('regen_consent','denied');
+      document.getElementById('consent-banner').style.display='none';
+    }
+    (function(){
+      var c=localStorage.getItem('regen_consent');
+      if(c) return; // already chose
+      // Show banner — consent mode defaults already set to denied in <head>
+      document.getElementById('consent-banner').style.display='block';
+    })();
+    </script>
     `;
 }
