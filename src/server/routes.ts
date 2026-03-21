@@ -935,13 +935,6 @@ ${SUPPORTED_LANGS.map(l => `  <link rel="alternate" hreflang="${l}" href="${base
             </div>
             <div class="crypto-plan-price">$50</div>
           </div>
-          <div class="crypto-plan" onclick="selectCryptoPlan('lifetime', 25000, 'Lifetime')">
-            <div>
-              <div class="crypto-plan-name">Lifetime</div>
-              <div class="crypto-plan-desc">Covered forever — maximum ecological impact</div>
-            </div>
-            <div class="crypto-plan-price">$250</div>
-          </div>
         </div>
       </div>
 
