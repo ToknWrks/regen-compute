@@ -40,6 +40,7 @@ import {
   type Subscriber,
   getReferralCount,
   getMedianReferralCount,
+  getExpiringCryptoSubscribers,
 } from "./db.js";
 import { PROJECTS, getProjectForBatch, type ProjectInfo } from "./project-metadata.js";
 import { createSessionToken, getSessionEmail } from "./magic-link.js";
@@ -255,12 +256,14 @@ function renderDashboardPage(opts: {
   referralCode: string;
   referralCount: number;
   isTopReferrer: boolean;
+  cryptoSubs: Subscriber[];
 }): string {
   const {
     email, plan, memberSince, cumulative, monthly, badges, manageUrl,
     amountCents, billingInterval, baseUrl, nextRetirementDate, transactions, communityStats,
     regenAddress, projectCards, communityGoal, communityTotalCredits, communitySubscriberCount,
     batchDenomMap, totalRetiredCents, subscriptions, referralCode, referralCount, isTopReferrer,
+    cryptoSubs,
   } = opts;
   const isYearly = billingInterval === "yearly";
 
@@ -269,6 +272,44 @@ function renderDashboardPage(opts: {
   const retiredCents = totalRetiredCents > 0
     ? totalRetiredCents
     : (cumulative.total_contribution_cents > 0 ? cumulative.total_contribution_cents : 0);
+  // Crypto renewal banner logic
+  const now = new Date();
+  const expiringCryptoSub = cryptoSubs.find(s => {
+    if (!s.current_period_end) return false;
+    const end = new Date(s.current_period_end);
+    const daysLeft = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return daysLeft <= 60; // Show banner when within 60 days of expiry
+  });
+  let cryptoRenewalBanner = "";
+  if (expiringCryptoSub && expiringCryptoSub.current_period_end) {
+    const endDate = new Date(expiringCryptoSub.current_period_end);
+    const daysLeft = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const formattedExpiry = endDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const planLabel = displayPlanName(expiringCryptoSub.plan);
+    const isExpired = daysLeft <= 0;
+    const urgencyColor = isExpired ? "#ef4444" : daysLeft <= 7 ? "#ef4444" : "#f59e0b";
+    const urgencyText = isExpired
+      ? "Your subscription has expired"
+      : daysLeft <= 7
+        ? `Expiring in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`
+        : `Expires ${formattedExpiry}`;
+
+    cryptoRenewalBanner = `
+    <div style="margin-bottom:24px;background:linear-gradient(135deg,#fffbeb,#fef3c7);border:2px solid ${urgencyColor}33;border-left:4px solid ${urgencyColor};border-radius:var(--regen-radius-lg);padding:24px 28px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:${urgencyColor};text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">${urgencyText}</div>
+          <div style="font-size:17px;font-weight:800;color:var(--regen-navy);margin-bottom:4px;">Your ${escapeHtml(planLabel)} crypto subscription ${isExpired ? "expired" : "expires"} on ${escapeHtml(formattedExpiry)}</div>
+          <div style="font-size:14px;color:var(--regen-gray-500);">Extend now to keep funding ecological regeneration without interruption.</div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button onclick="openCryptoExtend()" class="regen-btn regen-btn--solid" style="white-space:nowrap;font-size:14px;padding:10px 20px;">Extend with Crypto</button>
+          <a href="/manage?email=${encodeURIComponent(email)}" class="regen-btn regen-btn--outline" style="white-space:nowrap;font-size:14px;padding:10px 20px;">Pay with Card</a>
+        </div>
+      </div>
+    </div>`;
+  }
+
   // Profile link
   const profileUrl = regenAddress
     ? `https://app.regen.network/profiles/${regenAddress}/portfolio`
@@ -487,6 +528,8 @@ function renderDashboardPage(opts: {
   })}
 
   <div class="regen-container">
+
+    ${cryptoRenewalBanner}
 
     ${!hasRetirements ? `
     <!-- ====== PRE-RETIREMENT WELCOME ====== -->
@@ -749,6 +792,190 @@ function renderDashboardPage(opts: {
     }
   </script>
 
+  <!-- Crypto extend modal -->
+  <div id="crypto-extend-overlay" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;" onclick="if(event.target===this)closeCryptoExtend()">
+    <div style="background:var(--regen-white);border-radius:var(--regen-radius-lg);padding:32px 28px;max-width:480px;width:92%;box-shadow:0 12px 40px rgba(0,0,0,0.25);position:relative;max-height:90vh;overflow-y:auto;">
+      <button onclick="closeCryptoExtend()" style="position:absolute;top:12px;right:16px;background:none;border:none;font-size:22px;color:var(--regen-gray-400);cursor:pointer;">&times;</button>
+
+      <div id="ce-step-1">
+        <h3 style="font-size:20px;font-weight:800;color:var(--regen-navy);margin:0 0 6px;">Extend Your Subscription</h3>
+        <p style="font-size:14px;color:var(--regen-gray-500);margin:0 0 20px;">Choose a plan to extend for another year.</p>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div onclick="selectExtendPlan('dabbler',1250,'Dabbler — 1 year')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border:2px solid var(--regen-gray-200);border-radius:10px;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.borderColor='var(--regen-green)'" onmouseout="this.style.borderColor='var(--regen-gray-200)'">
+            <div><div style="font-weight:700;color:var(--regen-navy);font-size:15px;">Dabbler</div><div style="font-size:12px;color:var(--regen-gray-400);">1 year extension</div></div>
+            <div style="font-weight:800;color:var(--regen-green);font-size:16px;">$12.50</div>
+          </div>
+          <div onclick="selectExtendPlan('builder',2500,'Builder — 1 year')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border:2px solid var(--regen-gray-200);border-radius:10px;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.borderColor='var(--regen-green)'" onmouseout="this.style.borderColor='var(--regen-gray-200)'">
+            <div><div style="font-weight:700;color:var(--regen-navy);font-size:15px;">Builder</div><div style="font-size:12px;color:var(--regen-gray-400);">1 year extension</div></div>
+            <div style="font-weight:800;color:var(--regen-green);font-size:16px;">$25</div>
+          </div>
+          <div onclick="selectExtendPlan('agent',5000,'Agent — 1 year')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border:2px solid var(--regen-gray-200);border-radius:10px;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.borderColor='var(--regen-green)'" onmouseout="this.style.borderColor='var(--regen-gray-200)'">
+            <div><div style="font-weight:700;color:var(--regen-navy);font-size:15px;">Agent</div><div style="font-size:12px;color:var(--regen-gray-400);">1 year extension</div></div>
+            <div style="font-weight:800;color:var(--regen-green);font-size:16px;">$50</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ce-step-2" style="display:none;">
+        <button onclick="document.getElementById('ce-step-1').style.display='';document.getElementById('ce-step-2').style.display='none';" style="background:none;border:none;color:var(--regen-gray-400);font-size:13px;cursor:pointer;padding:0;margin-bottom:16px;">&larr; Back</button>
+        <h3 style="font-size:20px;font-weight:800;color:var(--regen-navy);margin:0 0 6px;">Send Payment</h3>
+        <p id="ce-plan-label" style="font-size:14px;color:var(--regen-gray-500);margin:0 0 16px;"></p>
+
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+          <button class="ce-chain-tab" data-chain="evm" onclick="ceSwitchChain('evm')" style="padding:6px 14px;border:1px solid var(--regen-green);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:var(--regen-green);color:#fff;">EVM</button>
+          <button class="ce-chain-tab" data-chain="bitcoin" onclick="ceSwitchChain('bitcoin')" style="padding:6px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:var(--regen-white);color:var(--regen-gray-500);">Bitcoin</button>
+          <button class="ce-chain-tab" data-chain="solana" onclick="ceSwitchChain('solana')" style="padding:6px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:var(--regen-white);color:var(--regen-gray-500);">Solana</button>
+          <button class="ce-chain-tab" data-chain="tron" onclick="ceSwitchChain('tron')" style="padding:6px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:var(--regen-white);color:var(--regen-gray-500);">Tron</button>
+        </div>
+
+        <div id="ce-evm-select" style="margin-bottom:12px;">
+          <select id="ce-evm-chain" onchange="var s=document.getElementById('ce-confirm-chain');for(var i=0;i<s.options.length;i++)if(s.options[i].value===this.value){s.selectedIndex=i;break;}" style="width:100%;padding:8px 12px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:14px;">
+            <option value="base" selected>Base (recommended)</option>
+            <option value="ethereum">Ethereum</option>
+            <option value="arbitrum">Arbitrum</option>
+            <option value="polygon">Polygon</option>
+            <option value="optimism">Optimism</option>
+          </select>
+        </div>
+
+        <div style="background:var(--regen-gray-50);border:1px solid var(--regen-gray-200);border-radius:10px;padding:16px;text-align:center;">
+          <div id="ce-addr" onclick="navigator.clipboard.writeText(document.getElementById('ce-addr-val').textContent).then(function(){var c=document.getElementById('ce-copied');c.style.opacity='1';setTimeout(function(){c.style.opacity='0';},1200);})" style="font-family:monospace;font-size:12px;word-break:break-all;color:var(--regen-navy);background:var(--regen-white);padding:8px 12px;border-radius:6px;border:1px solid var(--regen-gray-200);cursor:pointer;position:relative;">
+            <span id="ce-addr-val"></span>
+            <div id="ce-copied" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--regen-green);color:#fff;border-radius:6px;font-size:13px;font-weight:700;opacity:0;transition:opacity 0.2s;pointer-events:none;">Copied!</div>
+          </div>
+          <p style="font-size:14px;color:var(--regen-gray-500);margin:12px 0 0;">Send <strong id="ce-amount" style="color:var(--regen-navy);"></strong> worth of any token</p>
+        </div>
+
+        <button onclick="document.getElementById('ce-step-2').style.display='none';document.getElementById('ce-step-3').style.display='';" class="regen-btn regen-btn--solid regen-btn--block" style="font-size:15px;padding:12px;margin-top:16px;">I've sent the payment</button>
+      </div>
+
+      <div id="ce-step-3" style="display:none;">
+        <button onclick="document.getElementById('ce-step-3').style.display='none';document.getElementById('ce-step-2').style.display='';" style="background:none;border:none;color:var(--regen-gray-400);font-size:13px;cursor:pointer;padding:0;margin-bottom:16px;">&larr; Back</button>
+        <h3 style="font-size:20px;font-weight:800;color:var(--regen-navy);margin:0 0 6px;">Confirm Payment</h3>
+        <p style="font-size:14px;color:var(--regen-gray-500);margin:0 0 16px;">Paste your transaction hash to verify</p>
+
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Chain</label>
+          <select id="ce-confirm-chain" style="width:100%;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:14px;box-sizing:border-box;">
+            <option value="base" selected>Base</option>
+            <option value="ethereum">Ethereum</option>
+            <option value="arbitrum">Arbitrum</option>
+            <option value="polygon">Polygon</option>
+            <option value="optimism">Optimism</option>
+            <option value="bitcoin">Bitcoin</option>
+            <option value="solana">Solana</option>
+            <option value="tron">Tron</option>
+          </select>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-weight:600;font-size:14px;color:var(--regen-navy);margin-bottom:6px;">Transaction Hash</label>
+          <input type="text" id="ce-tx-hash" placeholder="0x..." style="width:100%;padding:10px 14px;border:1px solid var(--regen-gray-200);border-radius:8px;font-size:14px;font-family:monospace;box-sizing:border-box;">
+        </div>
+        <p id="ce-error" style="color:#c33;font-size:13px;display:none;margin:0 0 12px;"></p>
+        <button id="ce-confirm-btn" onclick="ceConfirm()" class="regen-btn regen-btn--solid regen-btn--block" style="font-size:15px;padding:12px;">Verify & Extend</button>
+      </div>
+
+      <div id="ce-step-4" style="display:none;text-align:center;padding:16px;"></div>
+    </div>
+  </div>
+
+  <script>
+    var ceAddresses = {
+      evm: '0x0687cC26060FE12Fd4A6210c2f30Cf24a9853C6b',
+      bitcoin: 'bc1qa2wlapdsmf0pp8x3gamp6elaaehkarpgdre5vq',
+      solana: '9npQZwDxDAcbnpVpQKzKYtLDKN8xpAMfE5FSAuSGsaJh',
+      tron: 'TRNx7dZXm2HNqaUp9oLTSLBhN4tHmsyUfL'
+    };
+    var ceChain = 'evm';
+
+    function openCryptoExtend() {
+      document.getElementById('crypto-extend-overlay').style.display = 'flex';
+      document.getElementById('ce-step-1').style.display = '';
+      document.getElementById('ce-step-2').style.display = 'none';
+      document.getElementById('ce-step-3').style.display = 'none';
+      document.getElementById('ce-step-4').style.display = 'none';
+    }
+    function closeCryptoExtend() {
+      document.getElementById('crypto-extend-overlay').style.display = 'none';
+    }
+
+    function selectExtendPlan(id, cents, label) {
+      document.getElementById('ce-plan-label').textContent = label;
+      document.getElementById('ce-amount').textContent = '$' + (cents / 100);
+      ceSwitchChain('evm');
+      document.getElementById('ce-step-1').style.display = 'none';
+      document.getElementById('ce-step-2').style.display = '';
+    }
+
+    function ceSwitchChain(chain) {
+      ceChain = chain;
+      var tabs = document.querySelectorAll('.ce-chain-tab');
+      for (var i = 0; i < tabs.length; i++) {
+        var isActive = tabs[i].getAttribute('data-chain') === chain;
+        tabs[i].style.background = isActive ? 'var(--regen-green)' : 'var(--regen-white)';
+        tabs[i].style.color = isActive ? '#fff' : 'var(--regen-gray-500)';
+        tabs[i].style.borderColor = isActive ? 'var(--regen-green)' : 'var(--regen-gray-200)';
+      }
+      document.getElementById('ce-evm-select').style.display = chain === 'evm' ? 'block' : 'none';
+      document.getElementById('ce-addr-val').textContent = ceAddresses[chain];
+      var selChain = chain === 'evm' ? document.getElementById('ce-evm-chain').value : chain;
+      var sel = document.getElementById('ce-confirm-chain');
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === selChain) { sel.selectedIndex = i; break; }
+      }
+    }
+
+    function ceRetry() {
+      document.getElementById('ce-step-4').style.display = 'none';
+      document.getElementById('ce-step-3').style.display = '';
+      document.getElementById('ce-confirm-btn').disabled = false;
+      document.getElementById('ce-confirm-btn').textContent = 'Verify & Extend';
+    }
+
+    function ceConfirm() {
+      var chain = document.getElementById('ce-confirm-chain').value;
+      var txHash = document.getElementById('ce-tx-hash').value.trim();
+      var errEl = document.getElementById('ce-error');
+      errEl.style.display = 'none';
+      if (!txHash) { errEl.textContent = 'Please enter the transaction hash.'; errEl.style.display = 'block'; return; }
+
+      document.getElementById('ce-confirm-btn').disabled = true;
+      document.getElementById('ce-confirm-btn').textContent = 'Verifying...';
+      document.getElementById('ce-step-3').style.display = 'none';
+      document.getElementById('ce-step-4').style.display = '';
+      document.getElementById('ce-step-4').innerHTML = '<div style="width:32px;height:32px;border:3px solid var(--regen-gray-200);border-top-color:var(--regen-green);border-radius:50%;animation:ce-spin 0.8s linear infinite;margin:20px auto;"></div><p style="font-weight:700;color:var(--regen-navy);">Verifying on-chain...</p>';
+
+      fetch('/api/v1/confirm-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chain: chain, tx_hash: txHash, email: '${escapeHtml(email)}' })
+      })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(res) {
+        if (res.ok && res.data.subscription) {
+          document.getElementById('ce-step-4').innerHTML =
+            '<div style="width:56px;height:56px;border-radius:50%;background:rgba(79,181,115,0.12);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:28px;">&#10003;</div>' +
+            '<h4 style="font-size:18px;font-weight:800;color:var(--regen-green);margin:0 0 8px;">Subscription Extended!</h4>' +
+            '<p style="font-size:14px;color:var(--regen-gray-500);">' + res.data.subscription.plan + ' plan — ' + (res.data.subscription.expires === 'never' ? 'lifetime' : 'until ' + res.data.subscription.expires) + '</p>' +
+            '<button class="regen-btn regen-btn--solid" onclick="closeCryptoExtend();location.reload();" style="margin-top:16px;">Done</button>';
+        } else {
+          var msg = (res.data && res.data.error && res.data.error.message) || 'Verification failed.';
+          document.getElementById('ce-step-4').innerHTML =
+            '<div style="width:56px;height:56px;border-radius:50%;background:rgba(204,51,51,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:28px;color:#c33;">&#10007;</div>' +
+            '<h4 style="font-size:18px;font-weight:800;color:#c33;margin:0 0 8px;">Verification Failed</h4>' +
+            '<p style="font-size:14px;color:var(--regen-gray-500);">' + msg + '</p>' +
+            '<button class="regen-btn regen-btn--outline" onclick="ceRetry()" style="margin-top:8px;">Try Again</button>';
+        }
+      })
+      .catch(function(e) {
+        document.getElementById('ce-step-4').innerHTML =
+          '<p style="color:#c33;font-weight:700;">Error: ' + e.message + '</p>' +
+          '<button class="regen-btn regen-btn--outline" onclick="ceRetry()" style="margin-top:8px;">Try Again</button>';
+      });
+    }
+  </script>
+  <style>@keyframes ce-spin { to { transform: rotate(360deg); } }</style>
+
 ${betaBannerJS()}
 </body>
 </html>`;
@@ -1008,6 +1235,9 @@ export function createDashboardRoutes(
     const medianReferrals = getMedianReferralCount(db);
     const isTopReferrer = referralCount > 0 && referralCount >= medianReferrals;
 
+    // Crypto subscriptions approaching expiry
+    const cryptoSubs = getExpiringCryptoSubscribers(db, viewUser?.id ?? user.id);
+
     res.setHeader("Content-Type", "text/html");
     res.send(renderDashboardPage({
       email,
@@ -1034,6 +1264,7 @@ export function createDashboardRoutes(
       referralCode,
       referralCount,
       isTopReferrer,
+      cryptoSubs,
     }));
   });
 

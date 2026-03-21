@@ -1052,5 +1052,117 @@ export async function sendReferralBonusEmail(
   );
 }
 
+/**
+ * Send a crypto subscription renewal reminder email.
+ * Levels: 30d (1 month before), 14d (2 weeks), 5d (5 days), expired (day of)
+ */
+export async function sendCryptoRenewalEmail(
+  email: string,
+  plan: string,
+  expiresDate: string,
+  level: "30d" | "14d" | "5d" | "expired",
+  dashboardUrl: string,
+): Promise<void> {
+  const config = loadConfig();
+  if (!config.postmarkServerToken || !config.emailEnabled) return;
+
+  const planName = plan.charAt(0).toUpperCase() + plan.slice(1);
+  const formattedDate = new Date(expiresDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+  const levelMessages: Record<string, { subject: string; heading: string; urgency: string; color: string }> = {
+    "30d": {
+      subject: `Your ${planName} subscription expires in 1 month`,
+      heading: "Your subscription is expiring soon",
+      urgency: `Your <strong>${planName}</strong> plan expires on <strong>${formattedDate}</strong> — about 1 month from now.`,
+      color: "#f59e0b",
+    },
+    "14d": {
+      subject: `Action needed: ${planName} subscription expires in 2 weeks`,
+      heading: "2 weeks until your subscription expires",
+      urgency: `Your <strong>${planName}</strong> plan expires on <strong>${formattedDate}</strong>. Extend now to keep your ecological impact going.`,
+      color: "#f59e0b",
+    },
+    "5d": {
+      subject: `Expiring soon: ${planName} subscription — 5 days left`,
+      heading: "5 days left on your subscription",
+      urgency: `Your <strong>${planName}</strong> plan expires on <strong>${formattedDate}</strong>. Don't lose your streak!`,
+      color: "#ef4444",
+    },
+    "expired": {
+      subject: `Your ${planName} subscription has expired`,
+      heading: "Your subscription has expired",
+      urgency: `Your <strong>${planName}</strong> plan expired on <strong>${formattedDate}</strong>. Renew now to continue funding ecological regeneration.`,
+      color: "#ef4444",
+    },
+  };
+
+  const msg = levelMessages[level];
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f9fafb;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+
+          ${emailHeader()}
+
+          <!-- Body -->
+          <tr>
+            <td style="padding: 32px;">
+              <h1 style="margin:0 0 16px;font-family:'Mulish',Arial,sans-serif;font-size:22px;font-weight:700;color:#101570;">
+                ${msg.heading}
+              </h1>
+              <p style="margin:0 0 20px;font-family:Arial,sans-serif;font-size:15px;color:#374151;line-height:1.6;">
+                ${msg.urgency}
+              </p>
+
+              <!-- Status bar -->
+              <div style="margin:0 0 24px;padding:16px 20px;background:#fefce8;border:1px solid ${msg.color}33;border-left:4px solid ${msg.color};border-radius:8px;">
+                <p style="margin:0;font-family:Arial,sans-serif;font-size:14px;color:#374151;">
+                  ${level === "expired"
+                    ? "Your credits are no longer being retired monthly. Renew to resume."
+                    : "Your monthly credit retirements will stop when your subscription expires."}
+                </p>
+              </div>
+
+              <p style="margin:0 0 20px;font-family:Arial,sans-serif;font-size:15px;color:#374151;line-height:1.6;">
+                Extending is easy — pay with crypto or credit card from your dashboard.
+              </p>
+
+              <!-- CTA Button -->
+              <div style="text-align:center;margin:0 0 24px;">
+                <a href="${escapeHtml(dashboardUrl)}" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#4FB573,#79C6AA);color:#ffffff;font-family:'Mulish',Arial,sans-serif;font-size:16px;font-weight:700;text-decoration:none;border-radius:10px;">
+                  Extend My Subscription
+                </a>
+              </div>
+
+              <p style="margin:0;font-family:Arial,sans-serif;font-size:13px;color:#9ca3af;line-height:1.5;">
+                Every dollar funds verified ecological regeneration — carbon sequestration, biodiversity protection, and species stewardship on Regen Network.
+              </p>
+            </td>
+          </tr>
+
+          ${emailFooter(dashboardUrl)}
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  await sendViaPostmark(
+    config.postmarkServerToken,
+    config.emailFromAddress,
+    email,
+    msg.subject,
+    html,
+    dashboardUrl,
+  );
+}
+
 // Export for testing
 export { renderEmailHtml, type EmailData };

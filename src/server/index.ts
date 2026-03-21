@@ -29,6 +29,8 @@ import { createAiPluginRoutes } from "./ai-plugin.js";
 import { createAgentViewRoutes } from "./agent-view.js";
 import { loadConfig } from "../config.js";
 import { regenLogoSVG, regenLogoPNG } from "./brand.js";
+import { getCryptoSubscribersNeedingRenewal, markRenewalReminderSent, type RenewalLevel } from "./db.js";
+import { sendCryptoRenewalEmail } from "../services/email.js";
 
 export function startServer(options: { port?: number; dbPath?: string } = {}) {
   const port = options.port ?? parseInt(process.env.REGEN_SERVER_PORT ?? "3141", 10);
@@ -365,6 +367,47 @@ export function startServer(options: { port?: number; dbPath?: string } = {}) {
     const apiRoutes = createApiRoutes(db, baseUrl, config);
     app.use(apiRoutes);
   }
+
+  // --- Daily crypto renewal reminder check ---
+  async function checkCryptoRenewals() {
+    const levels: Array<{ level: RenewalLevel; daysAhead: number }> = [
+      { level: "30d", daysAhead: 30 },
+      { level: "14d", daysAhead: 14 },
+      { level: "5d", daysAhead: 5 },
+      { level: "expired", daysAhead: 0 },
+    ];
+
+    for (const { level, daysAhead } of levels) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() + daysAhead);
+      const cutoffStr = cutoff.toISOString();
+
+      const subs = getCryptoSubscribersNeedingRenewal(db, level, cutoffStr);
+      for (const sub of subs) {
+        try {
+          await sendCryptoRenewalEmail(
+            sub.email,
+            sub.plan,
+            sub.current_period_end!,
+            level,
+            `${baseUrl}/dashboard`,
+          );
+          markRenewalReminderSent(db, sub.id, level);
+          console.log(`Sent ${level} renewal reminder to ${sub.email} (sub ${sub.id})`);
+        } catch (err) {
+          console.error(`Failed to send ${level} renewal reminder to ${sub.email}:`, err);
+        }
+      }
+    }
+  }
+
+  // Run once on startup (delayed 30s), then every 24 hours
+  setTimeout(() => {
+    checkCryptoRenewals().catch(console.error);
+  }, 30_000);
+  setInterval(() => {
+    checkCryptoRenewals().catch(console.error);
+  }, 24 * 60 * 60 * 1000);
 
   app.listen(port, () => {
     console.log(`Regenerative Compute server running on ${baseUrl}`);

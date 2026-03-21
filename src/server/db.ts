@@ -565,6 +565,12 @@ export function getDb(dbPath = "data/regen-compute.db"): Database.Database {
     console.log("Migration: added 'held' status to referral_rewards CHECK constraint");
   }
 
+  // Migration: add renewal_reminders_sent to subscribers (tracks which crypto renewal emails sent)
+  if (!subCols.includes("renewal_reminders_sent")) {
+    _db.exec(`ALTER TABLE subscribers ADD COLUMN renewal_reminders_sent TEXT`);
+    console.log("Migration: added renewal_reminders_sent column to subscribers");
+  }
+
   return _db;
 }
 
@@ -1639,4 +1645,45 @@ export function createCryptoPayment(
 export function updateCryptoPaymentStatus(db: Database.Database, id: number, status: string, subscriberId?: number, userId?: number): void {
   db.prepare("UPDATE crypto_payments SET status = ?, subscriber_id = COALESCE(?, subscriber_id), user_id = COALESCE(?, user_id) WHERE id = ?")
     .run(status, subscriberId ?? null, userId ?? null, id);
+}
+
+// --- Crypto renewal reminder helpers ---
+
+export type RenewalLevel = "30d" | "14d" | "5d" | "expired";
+
+/** Get crypto subscribers approaching expiry that haven't received the given reminder level */
+export function getCryptoSubscribersNeedingRenewal(db: Database.Database, level: RenewalLevel, cutoffDate: string): Array<Subscriber & { email: string }> {
+  // Crypto subscribers have stripe_subscription_id starting with 'crypto_'
+  const rows = db.prepare(`
+    SELECT s.*, u.email FROM subscribers s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.status = 'active'
+      AND s.stripe_subscription_id LIKE 'crypto_%'
+      AND s.current_period_end IS NOT NULL
+      AND s.current_period_end <= ?
+      AND u.email IS NOT NULL
+      AND (s.renewal_reminders_sent IS NULL OR s.renewal_reminders_sent NOT LIKE ?)
+  `).all(cutoffDate, `%${level}%`) as Array<Subscriber & { email: string }>;
+  return rows;
+}
+
+/** Mark a reminder level as sent for a subscriber */
+export function markRenewalReminderSent(db: Database.Database, subscriberId: number, level: RenewalLevel): void {
+  const current = (db.prepare("SELECT renewal_reminders_sent FROM subscribers WHERE id = ?").get(subscriberId) as { renewal_reminders_sent: string | null })?.renewal_reminders_sent ?? "";
+  const updated = current ? `${current},${level}` : level;
+  db.prepare("UPDATE subscribers SET renewal_reminders_sent = ? WHERE id = ?").run(updated, subscriberId);
+}
+
+/** Clear renewal reminders (called when subscription is extended) */
+export function clearRenewalReminders(db: Database.Database, subscriberId: number): void {
+  db.prepare("UPDATE subscribers SET renewal_reminders_sent = NULL WHERE id = ?").run(subscriberId);
+}
+
+/** Get all active crypto subscribers for a user (for dashboard display) */
+export function getExpiringCryptoSubscribers(db: Database.Database, userId: number): Subscriber[] {
+  return db.prepare(`
+    SELECT * FROM subscribers
+    WHERE user_id = ? AND status = 'active' AND stripe_subscription_id LIKE 'crypto_%'
+    ORDER BY current_period_end ASC
+  `).all(userId) as Subscriber[];
 }

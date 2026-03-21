@@ -29,6 +29,8 @@ import {
   createCryptoPayment,
   updateCryptoPaymentStatus,
   createScheduledRetirement,
+  clearRenewalReminders,
+  getExpiringCryptoSubscribers,
   type User,
 } from "./db.js";
 import { estimateFootprint } from "../services/estimator.js";
@@ -353,6 +355,12 @@ export function createApiRoutes(
 
       // Update crypto payment record
       updateCryptoPaymentStatus(db, cryptoPayment.id, "provisioned", subscriber.id, user.id);
+
+      // Clear renewal reminders on existing crypto subs (user renewed)
+      const existingCryptoSubs = getExpiringCryptoSubscribers(db, user.id);
+      for (const cs of existingCryptoSubs) {
+        clearRenewalReminders(db, cs.id);
+      }
 
       res.json({
         status: "provisioned",
