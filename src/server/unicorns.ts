@@ -621,29 +621,6 @@ export function createUnicornRoutes(db: Database.Database, baseUrl: string, conf
 
   <div class="uni-reality">
 
-    <section class="uni-hiw">
-      <div class="uni-container">
-        <h2>How It Actually Works</h2>
-        <div class="uni-hiw__steps">
-          <div class="uni-hiw__step">
-            <div class="uni-hiw__num">1</div>
-            <h3>Install the MCP Server</h3>
-            <p>One command. Works with Claude Code, Cursor, and any MCP-compatible AI tool.</p>
-          </div>
-          <div class="uni-hiw__step">
-            <div class="uni-hiw__num">2</div>
-            <h3>We Retire Real Credits</h3>
-            <p>Every month, verified ecological credits are retired permanently on-chain on your behalf.</p>
-          </div>
-          <div class="uni-hiw__step">
-            <div class="uni-hiw__num">3</div>
-            <h3>Track Your Impact</h3>
-            <p>Dashboard with on-chain proof. Retirement certificates you can share and verify.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <section class="uni-pricing" id="pricing">
       <div class="uni-container">
         <h2>Save Some Real Magic</h2>
@@ -675,6 +652,29 @@ export function createUnicornRoutes(db: Database.Database, baseUrl: string, conf
           <span class="uni-crypto-badge" onclick="window.location.href='/#pricing'">
             Prefer crypto? Pay with ETH, BTC, SOL, or USDC &rarr;
           </span>
+        </div>
+      </div>
+    </section>
+
+    <section class="uni-hiw">
+      <div class="uni-container">
+        <h2>How It Works</h2>
+        <div class="uni-hiw__steps">
+          <div class="uni-hiw__step">
+            <div class="uni-hiw__num">1</div>
+            <h3>You Subscribe</h3>
+            <p>Pick a plan. That&rsquo;s it. No installs, no setup, no code changes.</p>
+          </div>
+          <div class="uni-hiw__step">
+            <div class="uni-hiw__num">2</div>
+            <h3>We Retire Credits</h3>
+            <p>Every month, verified ecological credits are permanently retired on-chain on your behalf.</p>
+          </div>
+          <div class="uni-hiw__step">
+            <div class="uni-hiw__num">3</div>
+            <h3>You Get Proof</h3>
+            <p>Dashboard with on-chain receipts. Shareable retirement certificates you can verify yourself.</p>
+          </div>
         </div>
       </div>
     </section>
