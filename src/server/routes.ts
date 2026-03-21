@@ -651,8 +651,9 @@ ${SUPPORTED_LANGS.map(l => `  <link rel="alternate" hreflang="${l}" href="${base
       <!-- Crypto payment badge -->
       <div style="text-align:center;">
         <span class="crypto-badge" onclick="openCryptoCheckout()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r=".5"/></svg>
-          Prefer crypto? Pay with ETH, BTC, SOL, USDC, or any token
+          <svg width="18" height="18" viewBox="0 0 256 417" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M127.96 0l-2.8 9.5v277.7l2.8 2.8 127.96-75.6z" fill="#343434"/><path d="M127.96 0L0 214.4l127.96 75.6V155.5z" fill="#8C8C8C"/><path d="M127.96 312.2l-1.6 1.9v98.2l1.6 4.6L256 236.6z" fill="#3C3C3B"/><path d="M127.96 416.9V312.2L0 236.6z" fill="#8C8C8C"/></svg>
+          Pay with crypto — ETH, BTC, SOL, USDC, or any token
+          <svg width="18" height="18" viewBox="0 0 2000 2000" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="1000" cy="1000" r="1000" fill="#2775CA"/><path d="M1275 1158.3c0-145.8-87.5-195.8-262.5-216.6-125-16.7-150-50-150-108.4 0-58.3 41.7-95.8 125-95.8 75 0 116.7 25 137.5 87.5 4.2 12.5 16.7 20.8 29.2 20.8h66.6c16.7 0 29.2-12.5 29.2-29.2v-4.2c-16.7-91.6-91.7-162.5-191.7-175V550c0-16.7-12.5-29.2-33.3-33.3h-62.5c-16.7 0-29.2 12.5-33.3 33.3v83.3c-129.2 16.7-212.5 95.8-212.5 204.2 0 137.5 83.3 191.7 258.3 212.5 120.8 20.8 154.2 45.8 154.2 112.5s-58.3 112.5-137.5 112.5c-108.3 0-145.8-45.8-158.3-108.3-4.2-16.7-16.7-25-29.2-25h-70.8c-16.7 0-29.2 12.5-29.2 29.2v4.2c20.8 100 83.3 175 225 200v87.5c0 16.7 12.5 29.2 33.3 33.3h62.5c16.7 0 29.2-12.5 33.3-33.3v-87.5c129.2-20.8 216.7-104.2 216.7-220.8z" fill="white"/></svg>
         </span>
       </div>
 
