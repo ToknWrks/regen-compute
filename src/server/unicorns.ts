@@ -332,14 +332,25 @@ export function createUnicornRoutes(db: Database.Database, baseUrl: string, conf
       background: linear-gradient(180deg, #1a3a3e 0%, #f0f7f2 100%);
       text-align: center;
     }
-    .uni-transition p {
+    .uni-transition__card {
+      max-width: 520px;
+      margin: 0 auto;
+      background: rgba(15, 10, 30, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--regen-radius-lg);
+      padding: 36px 32px;
+    }
+    .uni-transition__card p {
       font-size: 18px;
       font-weight: 800;
-      max-width: 480px;
-      margin: 0 auto;
       line-height: 1.8;
+      color: #fff;
+      margin: 0;
+    }
+    .uni-transition__card p span {
       color: var(--uni-pink);
-      text-shadow: 0 0 30px rgba(255,45,149,0.3);
     }
 
     /* === REALITY SECTION (Regen brand from here) === */
@@ -657,7 +668,9 @@ export function createUnicornRoutes(db: Database.Database, baseUrl: string, conf
 
   <section class="uni-transition">
     <div class="uni-container">
-      <p>The unicorns aren&rsquo;t real. But the impact is.<br>Every credit is verified on-chain. Every retirement is permanent.<br>This is ecological regeneration you can actually verify.</p>
+      <div class="uni-transition__card">
+        <p><span>The unicorns aren&rsquo;t real.</span> But the impact is.<br>Every credit is verified on-chain. Every retirement is permanent.<br>This is ecological regeneration you can actually verify.</p>
+      </div>
     </div>
   </section>
 
