@@ -333,15 +333,13 @@ export function createUnicornRoutes(db: Database.Database, baseUrl: string, conf
       text-align: center;
     }
     .uni-transition p {
-      font-size: 16px;
-      font-weight: 700;
+      font-size: 18px;
+      font-weight: 800;
       max-width: 480px;
       margin: 0 auto;
-      line-height: 1.7;
-      background: linear-gradient(135deg, var(--uni-turquoise), var(--regen-green));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      line-height: 1.8;
+      color: var(--uni-pink);
+      text-shadow: 0 0 30px rgba(255,45,149,0.3);
     }
 
     /* === REALITY SECTION (Regen brand from here) === */
