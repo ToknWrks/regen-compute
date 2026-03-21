@@ -423,12 +423,14 @@ ${SUPPORTED_LANGS.map(l => `  <link rel="alternate" hreflang="${l}" href="${base
     }
     .crypto-back:hover { color: var(--regen-navy); }
     .crypto-badge {
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: 13px; font-weight: 600; color: var(--regen-gray-500);
-      cursor: pointer; transition: color 0.15s; margin-top: 16px;
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 15px; font-weight: 600; color: var(--regen-gray-600);
+      cursor: pointer; transition: all 0.2s; margin-top: 16px;
+      border: 1.5px solid var(--regen-gray-200); border-radius: 10px;
+      padding: 12px 22px; background: var(--regen-white);
     }
-    .crypto-badge:hover { color: var(--regen-green); }
-    .crypto-badge svg { opacity: 0.6; transition: opacity 0.15s; }
+    .crypto-badge:hover { color: var(--regen-green); border-color: var(--regen-green); background: rgba(79,181,115,0.04); }
+    .crypto-badge svg { opacity: 0.7; transition: opacity 0.15s; }
     .crypto-badge:hover svg { opacity: 1; }
 
     /* Stats section */
