@@ -25,6 +25,7 @@ import { createApiRoutes } from "./api-routes.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { createResearchRoutes } from "./research.js";
 import { createAboutRoutes } from "./about.js";
+import { createDevelopersRoutes } from "./developers.js";
 import { createAiPluginRoutes } from "./ai-plugin.js";
 import { createUnicornRoutes } from "./unicorns.js";
 import { createRainbowRoutes } from "./rainbows.js";
@@ -355,6 +356,10 @@ export function startServer(options: { port?: number; dbPath?: string } = {}) {
   // About page (static, no dependencies)
   const aboutRoutes = createAboutRoutes(baseUrl);
   app.use(aboutRoutes);
+
+  // Developers page (static, no dependencies)
+  const developersRoutes = createDevelopersRoutes(baseUrl);
+  app.use(developersRoutes);
 
   // AI Plugin page (static, no dependencies)
   const aiPluginRoutes = createAiPluginRoutes(baseUrl);
