@@ -41,6 +41,13 @@ import {
   getReferralCount,
   getMedianReferralCount,
   getExpiringCryptoSubscribers,
+  getApiUsageSummary,
+  getApiUsageTotal,
+  getRecentApiCalls,
+  getApiUsageByDay,
+  type ApiUsageSummary,
+  type ApiUsageRow,
+  type ApiUsageDay,
 } from "./db.js";
 import { PROJECTS, getProjectForBatch, type ProjectInfo } from "./project-metadata.js";
 import { createSessionToken, getSessionEmail } from "./magic-link.js";
@@ -153,6 +160,296 @@ function computeBadges(cumulative: CumulativeAttribution): Badge[] {
 }
 
 // --- HTML rendering ---
+
+function renderApiDashboard(opts: {
+  email: string;
+  apiKey: string;
+  days: number;
+  total: number;
+  successTotal: number;
+  errorTotal: number;
+  summary: ApiUsageSummary[];
+  recent: ApiUsageRow[];
+  byDay: ApiUsageDay[];
+  baseUrl: string;
+}): string {
+  const { email, apiKey, days, total, successTotal, errorTotal, summary, recent, byDay, baseUrl } = opts;
+  const successRate = total > 0 ? Math.round((successTotal / total) * 100) : 100;
+  const dayLabels = JSON.stringify(byDay.map(d => d.day.slice(5))); // MM-DD
+  const dayCallData = JSON.stringify(byDay.map(d => d.calls));
+  const dayErrorData = JSON.stringify(byDay.map(d => d.errors));
+
+  const nav = [
+    { label: "Home", href: "/" },
+    { label: "Dashboard", href: "/dashboard" },
+    { label: "Log out", href: "/dashboard/logout" },
+  ];
+
+  function statusBadge(code: number): string {
+    if (code < 300) return `<span style="background:rgba(79,181,115,0.15);color:#4FB573;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;">${code}</span>`;
+    if (code < 400) return `<span style="background:rgba(99,102,241,0.15);color:#818cf8;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;">${code}</span>`;
+    return `<span style="background:rgba(239,68,68,0.15);color:#f87171;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;">${code}</span>`;
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>API Dashboard — Regenerative Compute</title>
+  ${brandFonts()}
+  <style>
+    ${brandCSS()}
+    body { background: #0a140e; color: #e5e7eb; }
+    .api-dash { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+    .api-dash__header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 32px; }
+    .api-dash__title { font-size: 26px; font-weight: 800; color: #fff; margin: 0; }
+    .api-dash__sub { font-size: 14px; color: var(--regen-gray-500); margin: 4px 0 0; }
+    .api-dash__range { display: flex; gap: 6px; }
+    .api-dash__range a {
+      font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.1); color: var(--regen-gray-400);
+      text-decoration: none; transition: all 0.15s;
+    }
+    .api-dash__range a:hover, .api-dash__range a.active {
+      background: rgba(79,181,115,0.15); border-color: rgba(79,181,115,0.4); color: var(--regen-green);
+    }
+
+    /* stat cards */
+    .api-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .api-stat {
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 20px 22px;
+    }
+    .api-stat__label { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--regen-gray-500); margin-bottom: 8px; }
+    .api-stat__value { font-size: 32px; font-weight: 800; color: #fff; line-height: 1; }
+    .api-stat__sub { font-size: 12px; color: var(--regen-gray-500); margin-top: 6px; }
+
+    /* key box */
+    .api-key-box {
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 20px 22px; margin-bottom: 32px;
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .api-key-box__label { font-size: 12px; font-weight: 700; color: var(--regen-gray-500); flex-shrink: 0; }
+    .api-key-box__key {
+      font-family: monospace; font-size: 13px; color: var(--regen-green);
+      background: rgba(79,181,115,0.08); border: 1px solid rgba(79,181,115,0.2);
+      border-radius: 6px; padding: 6px 12px; flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+    }
+    .api-key-box__btn {
+      background: var(--regen-green); color: #fff; border: none; border-radius: 6px;
+      padding: 7px 14px; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0;
+    }
+
+    /* chart */
+    .api-chart-wrap {
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 20px 22px; margin-bottom: 32px;
+    }
+    .api-chart-wrap h3 { font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 16px; }
+
+    /* tables */
+    .api-section { margin-bottom: 36px; }
+    .api-section h3 { font-size: 16px; font-weight: 700; color: #fff; margin: 0 0 14px; }
+    .api-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .api-table th {
+      text-align: left; padding: 9px 12px; font-size: 11px; font-weight: 700;
+      letter-spacing: 1px; text-transform: uppercase; color: var(--regen-gray-500);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .api-table td {
+      padding: 10px 12px; color: var(--regen-gray-300);
+      border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle;
+    }
+    .api-table tr:last-child td { border-bottom: none; }
+    .api-table td code { font-family: monospace; font-size: 12px; color: var(--regen-green); }
+    .api-table .method-get  { color: #4FB573; font-family: monospace; font-size: 11px; font-weight: 700; }
+    .api-table .method-post { color: #818cf8; font-family: monospace; font-size: 11px; font-weight: 700; }
+    .empty-state { text-align: center; padding: 48px 24px; color: var(--regen-gray-500); }
+    .empty-state h3 { font-size: 16px; font-weight: 600; color: var(--regen-gray-400); margin: 0 0 8px; }
+    .empty-state p { font-size: 14px; margin: 0 0 20px; line-height: 1.6; }
+    @media (max-width: 600px) {
+      .api-dash { padding: 24px 16px 64px; }
+      .api-key-box { flex-direction: column; align-items: stretch; }
+    }
+  </style>
+</head>
+<body>
+${brandHeader({ nav })}
+<div class="api-dash">
+
+  <div class="api-dash__header">
+    <div>
+      <h1 class="api-dash__title">API Dashboard</h1>
+      <p class="api-dash__sub">${escapeHtml(email)}</p>
+    </div>
+    <div class="api-dash__range">
+      <a href="/dashboard/api?days=7"  class="${days === 7  ? "active" : ""}">7d</a>
+      <a href="/dashboard/api?days=30" class="${days === 30 ? "active" : ""}">30d</a>
+      <a href="/dashboard/api?days=90" class="${days === 90 ? "active" : ""}">90d</a>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="api-stats">
+    <div class="api-stat">
+      <div class="api-stat__label">Total calls</div>
+      <div class="api-stat__value">${total.toLocaleString()}</div>
+      <div class="api-stat__sub">last ${days} days</div>
+    </div>
+    <div class="api-stat">
+      <div class="api-stat__label">Success rate</div>
+      <div class="api-stat__value" style="color:${successRate >= 99 ? "#4FB573" : successRate >= 95 ? "#fbbf24" : "#f87171"}">${successRate}%</div>
+      <div class="api-stat__sub">${successTotal.toLocaleString()} ok / ${errorTotal.toLocaleString()} errors</div>
+    </div>
+    <div class="api-stat">
+      <div class="api-stat__label">Endpoints used</div>
+      <div class="api-stat__value">${summary.length}</div>
+      <div class="api-stat__sub">unique routes</div>
+    </div>
+    <div class="api-stat">
+      <div class="api-stat__label">Avg latency</div>
+      <div class="api-stat__value" style="font-size:24px;">
+        ${summary.length > 0
+          ? Math.round(summary.reduce((a, r) => a + (r.avg_response_ms ?? 0) * r.total_calls, 0) / total) + "ms"
+          : "—"}
+      </div>
+      <div class="api-stat__sub">weighted avg</div>
+    </div>
+  </div>
+
+  <!-- API key -->
+  <div class="api-key-box">
+    <span class="api-key-box__label">API KEY</span>
+    <code class="api-key-box__key" id="apiKeyVal" onclick="copyKey()">${escapeHtml(apiKey)}</code>
+    <button class="api-key-box__btn" id="copyKeyBtn" onclick="copyKey()">Copy</button>
+    <a href="/developers" style="font-size:12px;color:var(--regen-green);text-decoration:none;padding:7px 14px;border:1px solid rgba(79,181,115,0.3);border-radius:6px;font-weight:600;">Docs</a>
+  </div>
+
+  ${byDay.length > 0 ? `
+  <!-- Activity chart -->
+  <div class="api-chart-wrap">
+    <h3>API Calls — Last ${Math.min(days, 14)} Days</h3>
+    <canvas id="usageChart" height="80"></canvas>
+  </div>
+  ` : ""}
+
+  ${total === 0 ? `
+  <div class="empty-state">
+    <h3>No API calls yet in this period</h3>
+    <p>Make your first request using your API key to see usage here.</p>
+    <div style="font-family:monospace;font-size:13px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:14px 18px;text-align:left;max-width:520px;margin:0 auto;">
+curl -H "Authorization: Bearer ${escapeHtml(apiKey)}" \\<br/>
+&nbsp;&nbsp;"${escapeHtml(baseUrl)}/api/v1/impact"
+    </div>
+    <br/><a href="/developers" class="regen-btn regen-btn--primary" style="display:inline-block;margin-top:8px;">View API docs</a>
+  </div>
+  ` : `
+  <!-- Usage by endpoint -->
+  <div class="api-section">
+    <h3>Usage by Endpoint</h3>
+    <table class="api-table">
+      <thead>
+        <tr>
+          <th>Method</th><th>Endpoint</th><th>Calls</th>
+          <th>Errors</th><th>Avg ms</th><th>Last called</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${summary.map(r => `
+        <tr>
+          <td><span class="method-${r.method.toLowerCase()}">${escapeHtml(r.method)}</span></td>
+          <td><code>${escapeHtml(r.endpoint)}</code></td>
+          <td>${r.total_calls.toLocaleString()}</td>
+          <td style="color:${r.error_calls > 0 ? "#f87171" : "var(--regen-gray-500)"}">
+            ${r.error_calls > 0 ? r.error_calls.toLocaleString() : "—"}
+          </td>
+          <td style="color:var(--regen-gray-400)">${r.avg_response_ms ? Math.round(r.avg_response_ms) + "ms" : "—"}</td>
+          <td style="color:var(--regen-gray-500);font-size:12px;">${r.last_called_at ? r.last_called_at.slice(0, 16).replace("T", " ") : "—"}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Recent calls -->
+  <div class="api-section">
+    <h3>Recent Calls</h3>
+    <table class="api-table">
+      <thead>
+        <tr><th>Time</th><th>Method</th><th>Endpoint</th><th>Status</th><th>ms</th></tr>
+      </thead>
+      <tbody>
+        ${recent.map(r => `
+        <tr>
+          <td style="color:var(--regen-gray-500);font-size:12px;white-space:nowrap;">${r.created_at.slice(0, 16).replace("T", " ")}</td>
+          <td><span class="method-${r.method.toLowerCase()}">${escapeHtml(r.method)}</span></td>
+          <td><code>${escapeHtml(r.endpoint)}</code></td>
+          <td>${statusBadge(r.status_code)}</td>
+          <td style="color:var(--regen-gray-400)">${r.response_time_ms ?? "—"}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+  </div>
+  `}
+
+</div>
+
+${byDay.length > 0 ? `
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+  var ctx = document.getElementById('usageChart');
+  if (!ctx) return;
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ${dayLabels},
+      datasets: [
+        {
+          label: 'Calls',
+          data: ${dayCallData},
+          backgroundColor: 'rgba(79,181,115,0.5)',
+          borderColor: 'rgba(79,181,115,0.8)',
+          borderWidth: 1,
+          borderRadius: 4,
+        },
+        {
+          label: 'Errors',
+          data: ${dayErrorData},
+          backgroundColor: 'rgba(239,68,68,0.4)',
+          borderColor: 'rgba(239,68,68,0.7)',
+          borderWidth: 1,
+          borderRadius: 4,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#9ca3af', font: { size: 12 } } } },
+      scales: {
+        x: { ticks: { color: '#6b7280' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#6b7280' }, grid: { color: 'rgba(255,255,255,0.04)' }, beginAtZero: true }
+      }
+    }
+  });
+})();
+</script>
+` : ""}
+<script>
+function copyKey() {
+  navigator.clipboard.writeText(document.getElementById('apiKeyVal').textContent.trim()).then(function() {
+    var btn = document.getElementById('copyKeyBtn');
+    btn.textContent = 'Copied!';
+    setTimeout(function() { btn.textContent = 'Copy'; }, 1800);
+  });
+}
+</script>
+${brandFooter({ links: [{ label: "Dashboard", href: "/dashboard" }, { label: "API Docs", href: "/developers" }] })}
+</body>
+</html>`;
+}
 
 function renderLoginPage(error?: string, success?: string, info?: string): string {
   return `<!DOCTYPE html>
@@ -745,9 +1042,14 @@ function renderDashboardPage(opts: {
             <pre style="font-size:12px;background:#1a1a2e;color:#a5f3c4;border-radius:6px;padding:14px 16px;overflow-x:auto;margin:0;line-height:1.6;">curl -H "Authorization: Bearer ${escapeHtml(apiKey.slice(0, 12))}..." \\
   ${escapeHtml(baseUrl)}/api/v1/subscription</pre>
           </div>
-          <p style="font-size:12px;color:var(--regen-gray-400);margin:12px 0 0;line-height:1.5;">
-            Returns your subscription status, cumulative credits retired, and referral link. Read-only. Full API docs at <a href="${escapeHtml(baseUrl)}/api/v1/openapi.json" target="_blank" rel="noopener" style="color:var(--regen-green);font-weight:600;">OpenAPI spec</a>.
-          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
+            <a href="/dashboard/api" style="display:inline-flex;align-items:center;gap:6px;background:rgba(79,181,115,0.1);border:1px solid rgba(79,181,115,0.3);color:var(--regen-green);font-size:12px;font-weight:700;padding:7px 14px;border-radius:7px;text-decoration:none;">
+              API Usage Dashboard →
+            </a>
+            <a href="/developers" style="display:inline-flex;align-items:center;gap:6px;background:var(--regen-gray-50);border:1px solid var(--regen-gray-200);color:var(--regen-gray-600);font-size:12px;font-weight:600;padding:7px 14px;border-radius:7px;text-decoration:none;">
+              API Docs
+            </a>
+          </div>
         </div>
       </details>
     </div>
@@ -1303,6 +1605,36 @@ export function createDashboardRoutes(
       isTopReferrer,
       cryptoSubs,
       apiKey: user.api_key,
+    }));
+  });
+
+  // GET /dashboard/api — developer API usage dashboard
+  router.get("/dashboard/api", (req: Request, res: Response) => {
+    const email = getSessionEmail(req.headers.cookie, config.sessionSecret);
+    if (!email) { res.redirect("/dashboard/login"); return; }
+    const user = getUserByEmail(db, email);
+    if (!user) { res.redirect("/dashboard/login"); return; }
+
+    const days = Math.min(parseInt((req.query.days as string) || "30", 10), 90);
+    const summary = getApiUsageSummary(db, user.id, days);
+    const recent = getRecentApiCalls(db, user.id, 25);
+    const byDay = getApiUsageByDay(db, user.id, Math.min(days, 14));
+    const total = getApiUsageTotal(db, user.id, days);
+    const successTotal = summary.reduce((a, r) => a + r.success_calls, 0);
+    const errorTotal = summary.reduce((a, r) => a + r.error_calls, 0);
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(renderApiDashboard({
+      email,
+      apiKey: user.api_key,
+      days,
+      total,
+      successTotal,
+      errorTotal,
+      summary,
+      recent,
+      byDay,
+      baseUrl,
     }));
   });
 
