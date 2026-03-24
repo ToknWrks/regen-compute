@@ -72,13 +72,13 @@ function compactBadgeSVG(theme: "dark" | "light" | "green"): string {
   const borderAttr = t.border ? `stroke="${t.border}" stroke-width="1.5"` : "";
   const markUri = regenMarkSVGDataURI(t.mark);
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="32" viewBox="0 0 240 32" role="img" aria-label="Powered by Regenerative Compute">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="150" height="32" viewBox="0 0 150 32" role="img" aria-label="Powered by Regenerative Compute">
   <defs>
-    <clipPath id="clip-${theme}"><rect width="240" height="32" rx="5"/></clipPath>
+    <clipPath id="clip-${theme}"><rect width="150" height="32" rx="5"/></clipPath>
   </defs>
   <g clip-path="url(#clip-${theme})">
-    <rect width="240" height="32" fill="${t.bg}" rx="5"/>
-    ${t.border ? `<rect width="240" height="32" fill="none" rx="5" ${borderAttr}/>` : ""}
+    <rect width="150" height="32" fill="${t.bg}" rx="5"/>
+    ${t.border ? `<rect width="150" height="32" fill="none" rx="5" ${borderAttr}/>` : ""}
     <image href="${markUri}" x="5" y="4" width="24" height="24"/>
     <text x="35" y="20" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="12" font-weight="600" fill="${t.label}" letter-spacing="0.01em">Regen Compute</text>
   </g>
@@ -381,7 +381,7 @@ function badgesPageHTML(baseUrl: string): string {
           return `
         <div class="badge-card">
           <div class="badge-preview badge-preview--${theme === "dark" ? "black" : theme === "light" ? "white" : "green"}">
-            <img src="data:image/svg+xml,${encoded}" alt="Regen Compute ${labels[theme]} badge" width="240" height="32">
+            <img src="data:image/svg+xml,${encoded}" alt="Regen Compute ${labels[theme]} badge" width="150" height="32">
           </div>
           <div class="badge-info">
             <h3>${labels[theme]}</h3>
@@ -392,7 +392,7 @@ function badgesPageHTML(baseUrl: string): string {
               <button class="tab-btn" onclick="showTab(this,'${theme}','url')">URL</button>
             </div>
             <div class="snippet-block visible" id="${theme}-markdown">[![Powered by Regenerative Compute](${svgUrl})](${baseUrl})<button class="copy-btn" onclick="copySnippet(this,'${theme}-markdown')">Copy</button></div>
-            <div class="snippet-block" id="${theme}-html">&lt;a href="${baseUrl}" target="_blank" rel="noopener"&gt;\n  &lt;img src="${svgUrl}" alt="Powered by Regenerative Compute" width="240" height="32"&gt;\n&lt;/a&gt;<button class="copy-btn" onclick="copySnippet(this,'${theme}-html')">Copy</button></div>
+            <div class="snippet-block" id="${theme}-html">&lt;a href="${baseUrl}" target="_blank" rel="noopener"&gt;\n  &lt;img src="${svgUrl}" alt="Powered by Regenerative Compute" width="150" height="32"&gt;\n&lt;/a&gt;<button class="copy-btn" onclick="copySnippet(this,'${theme}-html')">Copy</button></div>
             <div class="snippet-block" id="${theme}-url">${svgUrl}<button class="copy-btn" onclick="copySnippet(this,'${theme}-url')">Copy</button></div>
             <a class="download-btn" href="${svgUrl}" download="regen-compute-badge-${theme}.svg">
               <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 1v7M3 5l3 3 3-3M1 10h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
