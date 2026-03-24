@@ -426,7 +426,7 @@ function badgesPageHTML(baseUrl: string): string {
             : regenMarkSVGDataURI("white");
           const iconLightUrl = icon.file ? "" : regenMarkSVGDataURI("#0a2e1f");
           return `
-        <button class="icon-pick-btn" id="pick-${icon.id}" onclick="selectIcon('${icon.id}','${iconUrl}')" style="${icon.id === "1" ? "border-color:#4fb573;background:#f0faf4;" : ""}">
+        <button class="icon-pick-btn" id="pick-${icon.id}" onclick="selectIcon('${icon.id}','${iconUrl}','${iconLightUrl}')" style="${icon.id === "1" ? "border-color:#4fb573;background:#f0faf4;" : ""}">
           <img src="${previewSrc}" width="64" height="64" style="display:block;margin:0 auto 8px;object-fit:contain;">
           <div style="font-size:12px;font-weight:700;color:#0a2e1f">${icon.label}</div>
           <div style="font-size:11px;color:#64748b">${icon.desc}</div>
