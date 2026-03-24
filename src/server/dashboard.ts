@@ -208,6 +208,7 @@ ${brandFooter()}
 function renderApiDashboard(opts: {
   email: string;
   apiKey: string;
+  badgeToken: string | null;
   days: number;
   total: number;
   successTotal: number;
@@ -217,7 +218,7 @@ function renderApiDashboard(opts: {
   byDay: ApiUsageDay[];
   baseUrl: string;
 }): string {
-  const { email, apiKey, days, total, successTotal, errorTotal, summary, recent, byDay, baseUrl } = opts;
+  const { email, apiKey, badgeToken, days, total, successTotal, errorTotal, summary, recent, byDay, baseUrl } = opts;
   const successRate = total > 0 ? Math.round((successTotal / total) * 100) : 100;
   const dayLabels = JSON.stringify(byDay.map(d => d.day.slice(5))); // MM-DD
   const dayCallData = JSON.stringify(byDay.map(d => d.calls));
@@ -371,6 +372,13 @@ ${brandHeader({ nav })}
     <button class="regen-btn regen-btn--primary" id="copyKeyBtn" onclick="copyKey()" style="padding:7px 16px;font-size:12px;">Copy</button>
     <a href="/developers" class="regen-btn" style="padding:7px 16px;font-size:12px;">Docs</a>
   </div>
+  ${badgeToken ? `
+  <div class="api-key-box" style="margin-top:-12px;">
+    <span class="api-key-box__label">BADGE TOKEN</span>
+    <code class="api-key-box__key" id="badgeTokenVal" onclick="copyBadgeToken()" title="Click to copy" style="cursor:pointer">${escapeHtml(badgeToken)}</code>
+    <button class="regen-btn regen-btn--primary" id="copyBadgeBtn" onclick="copyBadgeToken()" style="padding:7px 16px;font-size:12px;">Copy</button>
+    <a href="/badges" class="regen-btn" style="padding:7px 16px;font-size:12px;">Get Badge</a>
+  </div>` : ""}
 
   ${byDay.length > 0 ? `
   <!-- Activity chart -->
@@ -470,6 +478,14 @@ function copyKey() {
     var btn = document.getElementById('copyKeyBtn');
     btn.textContent = 'Copied!';
     setTimeout(function() { btn.textContent = 'Copy'; }, 1800);
+  });
+}
+function copyBadgeToken() {
+  var el = document.getElementById('badgeTokenVal');
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent.trim()).then(function() {
+    var btn = document.getElementById('copyBadgeBtn');
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy'; }, 1800); }
   });
 }
 </script>
@@ -1669,6 +1685,7 @@ export function createDashboardRoutes(
     res.send(renderApiDashboard({
       email: user.email ?? "",
       apiKey: user.api_key,
+      badgeToken: user.badge_token ?? null,
       days,
       total,
       successTotal,
