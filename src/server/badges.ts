@@ -9,10 +9,46 @@
 import { Router, Request, Response } from "express";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { createHash } from "crypto";
 import type Database from "better-sqlite3";
 import { brandFonts, brandCSS, brandHeader, brandFooter } from "./brand.js";
 import { betaBannerCSS, betaBannerHTML, betaBannerJS } from "./beta-banner.js";
 import { getUserByBadgeToken, getSubscriberByUserId, getCumulativeAttribution } from "./db.js";
+
+// ---------------------------------------------------------------------------
+// In-memory rate limiter for /badges/* endpoints
+// ---------------------------------------------------------------------------
+
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX = 60; // requests per window per IP
+
+interface RateBucket {
+  count: number;
+  resetAt: number;
+}
+
+const rateLimitMap = new Map<string, RateBucket>();
+
+// Cleanup stale entries every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, bucket] of rateLimitMap) {
+    if (bucket.resetAt <= now) rateLimitMap.delete(ip);
+  }
+}, 120_000).unref();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const bucket = rateLimitMap.get(ip);
+
+  if (!bucket || bucket.resetAt <= now) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+
+  bucket.count++;
+  return bucket.count > RATE_LIMIT_MAX;
+}
 
 function loadIconBase64(filename: string): string {
   const iconPath = join(process.cwd(), "public", filename);
@@ -41,36 +77,74 @@ const ICON_DATA_URI = ICON_DATA_URIS["1"] || "";
 function compactBadgeSVG(theme: "dark" | "light" | "green", iconUrl: string = ICON_DATA_URI): string {
   const themes = {
     dark: {
-      leftBg: "#0a2e1f", rightBg: "#145433",
-      labelColor: "rgba(255,255,255,0.88)", valueColor: "#a3f0c0",
-      border: "",
+      leftBg1: "#0b3322", leftBg2: "#0a2e1f",
+      rightBg1: "#145433", rightBg2: "#0f4029",
+      labelColor: "rgba(255,255,255,0.92)", valueColor: "#7ee8a8",
+      border: "", borderGlow: "rgba(79,181,115,0.15)",
+      divider: "rgba(255,255,255,0.12)", dividerGlow: "rgba(126,232,168,0.25)",
+      leafColor: "rgba(79,181,115,0.07)", shadowColor: "rgba(0,0,0,0.35)",
     },
     light: {
-      leftBg: "#f0faf4", rightBg: "#ffffff",
-      labelColor: "#0a2e1f", valueColor: "#1a5c3a",
-      border: "#c3e8d0",
+      leftBg1: "#f7fcf9", leftBg2: "#eef7f1",
+      rightBg1: "#ffffff", rightBg2: "#f8fcfa",
+      labelColor: "#0a2e1f", valueColor: "#1a7a45",
+      border: "#c3e8d0", borderGlow: "rgba(79,181,115,0.08)",
+      divider: "#d4ead9", dividerGlow: "rgba(26,122,69,0.08)",
+      leafColor: "rgba(79,181,115,0.06)", shadowColor: "rgba(0,0,0,0.06)",
     },
     green: {
-      leftBg: "#1a6640", rightBg: "#4fb573",
-      labelColor: "rgba(255,255,255,0.92)", valueColor: "#ffffff",
-      border: "",
+      leftBg1: "#1e7a4c", leftBg2: "#1a6640",
+      rightBg1: "#56c07d", rightBg2: "#4fb573",
+      labelColor: "rgba(255,255,255,0.95)", valueColor: "#ffffff",
+      border: "", borderGlow: "rgba(255,255,255,0.12)",
+      divider: "rgba(255,255,255,0.18)", dividerGlow: "rgba(255,255,255,0.08)",
+      leafColor: "rgba(255,255,255,0.06)", shadowColor: "rgba(0,0,0,0.2)",
     },
   };
   const t = themes[theme];
-  const borderAttr = t.border ? `stroke="${t.border}" stroke-width="1.5"` : "";
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="32" viewBox="0 0 240 32" role="img" aria-label="Powered by Regenerative Compute">
   <defs>
-    <clipPath id="clip-${theme}"><rect width="240" height="32" rx="5"/></clipPath>
+    <clipPath id="rc-clip-${theme}"><rect width="240" height="32" rx="6"/></clipPath>
+    <linearGradient id="rc-left-${theme}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${t.leftBg1}"/>
+      <stop offset="100%" stop-color="${t.leftBg2}"/>
+    </linearGradient>
+    <linearGradient id="rc-right-${theme}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${t.rightBg1}"/>
+      <stop offset="100%" stop-color="${t.rightBg2}"/>
+    </linearGradient>
+    <filter id="rc-shadow-${theme}" x="-2%" y="-8%" width="104%" height="125%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.2" flood-color="${t.shadowColor}"/>
+    </filter>
+    <filter id="rc-glow-${theme}" x="-20%" y="-40%" width="140%" height="180%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2"/>
+    </filter>
   </defs>
-  <g clip-path="url(#clip-${theme})">
-    <rect width="240" height="32" fill="${t.leftBg}" rx="5"/>
-    <rect x="133" width="107" height="32" fill="${t.rightBg}"/>
-    ${t.border ? `<rect width="240" height="32" fill="none" rx="5" ${borderAttr}/>` : ""}
-    <image href="${iconUrl}" x="4" y="4" width="24" height="24"/>
-    <text x="34" y="20" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="12" font-weight="600" fill="${t.labelColor}" letter-spacing="0.01em">Regen Compute</text>
-    <line x1="133" y1="6" x2="133" y2="26" stroke="${t.border || "rgba(255,255,255,0.2)"}" stroke-width="1"/>
-    <text x="186" y="20" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="12" font-weight="700" fill="${t.valueColor}" text-anchor="middle" letter-spacing="0.01em">Regenerative AI</text>
+  <g filter="url(#rc-shadow-${theme})">
+    <g clip-path="url(#rc-clip-${theme})">
+      <!-- Left section gradient -->
+      <rect width="240" height="32" fill="url(#rc-left-${theme})" rx="6"/>
+      <!-- Right section gradient -->
+      <rect x="134" width="106" height="32" fill="url(#rc-right-${theme})"/>
+      <!-- Decorative leaf vein at divider -->
+      <path d="M131,28 Q127,20 131,11 Q129,17 133,22 Q131,19 131,28 Z" fill="${t.leafColor}" opacity="0.9"/>
+      <path d="M135,4 Q139,12 135,21 Q137,15 133,10 Q135,13 135,4 Z" fill="${t.leafColor}" opacity="0.6"/>
+      <!-- Divider glow (soft bloom behind line) -->
+      <line x1="133.5" y1="5" x2="133.5" y2="27" stroke="${t.dividerGlow}" stroke-width="3" filter="url(#rc-glow-${theme})"/>
+      <!-- Divider line (crisp) -->
+      <line x1="133.5" y1="7" x2="133.5" y2="25" stroke="${t.divider}" stroke-width="0.75"/>
+      <!-- Border -->
+      ${t.border ? `<rect width="240" height="32" fill="none" rx="6" stroke="${t.border}" stroke-width="1"/>` : ""}
+      <!-- Subtle top-edge highlight for depth -->
+      <rect x="1" y="1" width="238" height="1" rx="0.5" fill="${t.borderGlow}"/>
+      <!-- Icon -->
+      <image href="${iconUrl}" x="6" y="4" width="24" height="24"/>
+      <!-- Label -->
+      <text x="36" y="20.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',sans-serif" font-size="11.5" font-weight="600" fill="${t.labelColor}" letter-spacing="0.03em">Regen Compute</text>
+      <!-- Value (uppercase for distinction) -->
+      <text x="187" y="20.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',sans-serif" font-size="10.5" font-weight="700" fill="${t.valueColor}" text-anchor="middle" letter-spacing="0.06em">REGENERATIVE AI</text>
+    </g>
   </g>
 </svg>`;
 }
@@ -90,9 +164,30 @@ function usageBadgeSVG(opts: {
   const theme = opts.theme ?? "dark";
 
   const themes = {
-    dark:  { bg: "#0a2e1f", accent: "#4fb573", text: "#fff", sub: "rgba(255,255,255,0.6)" },
-    light: { bg: "#f0faf4", accent: "#1a5c3a", text: "#0a2e1f", sub: "#4a7a5a" },
-    green: { bg: "#1a6640", accent: "#a3f0c0", text: "#fff", sub: "rgba(255,255,255,0.7)" },
+    dark: {
+      bg1: "#0b3322", bg2: "#0a2e1f",
+      accent: "#7ee8a8", accentDim: "rgba(126,232,168,0.15)",
+      text: "#fff", sub: "rgba(255,255,255,0.5)",
+      divider: "rgba(126,232,168,0.2)", shadowColor: "rgba(0,0,0,0.4)",
+      patternColor: "rgba(79,181,115,0.04)", glowColor: "rgba(126,232,168,0.12)",
+      leafColor: "rgba(79,181,115,0.06)",
+    },
+    light: {
+      bg1: "#f7fcf9", bg2: "#eef7f1",
+      accent: "#1a7a45", accentDim: "rgba(26,122,69,0.08)",
+      text: "#0a2e1f", sub: "#6b8f7a",
+      divider: "rgba(26,122,69,0.12)", shadowColor: "rgba(0,0,0,0.08)",
+      patternColor: "rgba(79,181,115,0.04)", glowColor: "rgba(26,122,69,0.05)",
+      leafColor: "rgba(79,181,115,0.05)",
+    },
+    green: {
+      bg1: "#1e7a4c", bg2: "#1a6640",
+      accent: "#d4f5e2", accentDim: "rgba(255,255,255,0.1)",
+      text: "#fff", sub: "rgba(255,255,255,0.6)",
+      divider: "rgba(255,255,255,0.15)", shadowColor: "rgba(0,0,0,0.25)",
+      patternColor: "rgba(255,255,255,0.03)", glowColor: "rgba(255,255,255,0.06)",
+      leafColor: "rgba(255,255,255,0.05)",
+    },
   };
   const t = themes[theme];
 
@@ -100,27 +195,58 @@ function usageBadgeSVG(opts: {
     ? `${(credits / 1000).toFixed(1)}k`
     : credits.toFixed(credits < 10 ? 2 : 1);
 
+  // Growth bar width (visual indicator, caps at 100% for display)
+  const growthPercent = Math.min(100, Math.max(4, credits * 10));
+
   return `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80" viewBox="0 0 240 80" role="img" aria-label="Regen Compute — ${creditsFormatted} ${label} retired">
   <defs>
-    <clipPath id="usage-clip"><rect width="240" height="80" rx="8"/></clipPath>
-    <linearGradient id="usage-bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="${t.bg}"/>
-      <stop offset="100%" stop-color="${t.bg}" stop-opacity="0.85"/>
+    <clipPath id="ub-clip-${theme}"><rect width="240" height="80" rx="10"/></clipPath>
+    <linearGradient id="ub-bg-${theme}" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0%" stop-color="${t.bg1}"/>
+      <stop offset="100%" stop-color="${t.bg2}"/>
     </linearGradient>
+    <linearGradient id="ub-bar-${theme}" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="${t.accent}"/>
+      <stop offset="100%" stop-color="${t.accent}" stop-opacity="0.4"/>
+    </linearGradient>
+    <filter id="ub-shadow-${theme}" x="-3%" y="-5%" width="106%" height="118%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="${t.shadowColor}"/>
+    </filter>
+    <filter id="ub-numglow-${theme}" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3"/>
+    </filter>
+    <!-- Subtle diagonal line pattern for texture -->
+    <pattern id="ub-pattern-${theme}" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="8" stroke="${t.patternColor}" stroke-width="1"/>
+    </pattern>
   </defs>
-  <g clip-path="url(#usage-clip)">
-    <rect width="240" height="80" fill="url(#usage-bg)"/>
-    <!-- Icon -->
-    <image href="${iconUrl}" x="12" y="12" width="40" height="40"/>
-    <!-- Credits number -->
-    <text x="64" y="36" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="22" font-weight="800" fill="${t.accent}" letter-spacing="-0.02em">${creditsFormatted}</text>
-    <!-- Label -->
-    <text x="64" y="52" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="11" font-weight="600" fill="${t.text}" letter-spacing="0.02em">${label} retired</text>
-    <!-- Divider -->
-    <line x1="12" y1="62" x2="228" y2="62" stroke="${t.accent}" stroke-width="0.5" stroke-opacity="0.3"/>
-    <!-- Footer -->
-    <text x="12" y="74" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="9" fill="${t.sub}" letter-spacing="0.03em">POWERED BY REGENERATIVE COMPUTE</text>
-    ${months > 0 ? `<text x="228" y="74" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="9" fill="${t.sub}" text-anchor="end">${months} month${months !== 1 ? "s" : ""}</text>` : ""}
+  <g filter="url(#ub-shadow-${theme})">
+    <g clip-path="url(#ub-clip-${theme})">
+      <!-- Background gradient -->
+      <rect width="240" height="80" fill="url(#ub-bg-${theme})"/>
+      <!-- Subtle diagonal texture -->
+      <rect width="240" height="80" fill="url(#ub-pattern-${theme})"/>
+      <!-- Decorative leaf veins (bottom-right corner) -->
+      <path d="M220,80 Q210,65 220,50 Q215,60 225,68 Q220,63 220,80 Z" fill="${t.leafColor}" opacity="0.8"/>
+      <path d="M230,80 Q225,70 230,58 Q228,66 233,72 Q230,69 230,80 Z" fill="${t.leafColor}" opacity="0.5"/>
+      <path d="M210,80 Q202,72 210,60 Q206,68 214,74 Q210,71 210,80 Z" fill="${t.leafColor}" opacity="0.3"/>
+      <!-- Top highlight strip -->
+      <rect x="0" y="0" width="240" height="1" fill="${t.glowColor}"/>
+      <!-- Icon -->
+      <image href="${iconUrl}" x="14" y="10" width="36" height="36"/>
+      <!-- Credits number glow -->
+      <text x="62" y="34" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',sans-serif" font-size="26" font-weight="800" fill="${t.accent}" letter-spacing="-0.03em" filter="url(#ub-numglow-${theme})" opacity="0.4">${creditsFormatted}</text>
+      <!-- Credits number (prominent) -->
+      <text x="62" y="34" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',sans-serif" font-size="26" font-weight="800" fill="${t.accent}" letter-spacing="-0.03em">${creditsFormatted}</text>
+      <!-- Label -->
+      <text x="62" y="48" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',sans-serif" font-size="10.5" font-weight="600" fill="${t.text}" letter-spacing="0.04em" opacity="0.85">${label} retired</text>
+      <!-- Growth progress bar -->
+      <rect x="14" y="56" width="212" height="3" rx="1.5" fill="${t.accentDim}"/>
+      <rect x="14" y="56" width="${(growthPercent / 100) * 212}" height="3" rx="1.5" fill="url(#ub-bar-${theme})"/>
+      <!-- Footer -->
+      <text x="14" y="73" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',sans-serif" font-size="8.5" fill="${t.sub}" letter-spacing="0.05em" font-weight="500">POWERED BY REGENERATIVE COMPUTE</text>
+      ${months > 0 ? `<text x="226" y="73" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',sans-serif" font-size="8.5" fill="${t.sub}" text-anchor="end" letter-spacing="0.02em" font-weight="500">${months} mo</text>` : ""}
+    </g>
   </g>
 </svg>`;
 }
@@ -601,24 +727,34 @@ function badgesPageHTML(baseUrl: string): string {
 export function createBadgesRoutes(baseUrl: string, db?: Database.Database): Router {
   const router = Router();
 
-  // Static compact badge assets
+  // Rate-limit all /badges/* endpoints
+  router.use("/badges", (req: Request, res: Response, next) => {
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    if (isRateLimited(ip)) {
+      res.status(429).setHeader("Content-Type", "text/plain");
+      return res.send("Too Many Requests");
+    }
+    next();
+  });
+
+  // Static compact badge assets (never change — cache for 24 hours)
   router.get("/badges/badge-dark.svg", (_req: Request, res: Response) => {
     res.setHeader("Content-Type", "image/svg+xml");
-    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Cache-Control", "public, max-age=86400");
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.send(compactBadgeSVG("dark"));
   });
 
   router.get("/badges/badge-light.svg", (_req: Request, res: Response) => {
     res.setHeader("Content-Type", "image/svg+xml");
-    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Cache-Control", "public, max-age=86400");
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.send(compactBadgeSVG("light"));
   });
 
   router.get("/badges/badge-green.svg", (_req: Request, res: Response) => {
     res.setHeader("Content-Type", "image/svg+xml");
-    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Cache-Control", "public, max-age=86400");
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.send(compactBadgeSVG("green"));
   });
@@ -634,39 +770,44 @@ export function createBadgesRoutes(baseUrl: string, db?: Database.Database): Rou
     res.setHeader("Cache-Control", "public, max-age=300");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
+    let svg: string;
+
     if (!badgeToken || !db) {
-      return res.send(usageBadgeSVG({
-        credits: 0, label: "credits", months: 0, theme,
-      }));
+      svg = usageBadgeSVG({ credits: 0, label: "credits", months: 0, theme });
+    } else {
+      const user = getUserByBadgeToken(db, badgeToken);
+      if (!user) {
+        svg = usageBadgeSVG({ credits: 0, label: "credits", months: 0, theme });
+      } else {
+        const subscriber = getSubscriberByUserId(db, user.id);
+        const attr = subscriber
+          ? getCumulativeAttribution(db, subscriber.id)
+          : { total_carbon: 0, total_biodiversity: 0, total_uss: 0, total_contribution_cents: 0, months_active: 0 };
+
+        const totalCredits = attr.total_carbon + attr.total_biodiversity + attr.total_uss;
+
+        // Pick the most meaningful label
+        let credits = totalCredits;
+        let label = "credits";
+        if (attr.total_carbon > 0 && attr.total_biodiversity === 0 && attr.total_uss === 0) {
+          credits = attr.total_carbon; label = "carbon credits";
+        } else if (totalCredits === 0) {
+          credits = 0; label = "credits";
+        }
+
+        svg = usageBadgeSVG({ credits, label, theme, months: attr.months_active });
+      }
     }
 
-    const user = getUserByBadgeToken(db, badgeToken);
-    if (!user) {
-      return res.send(usageBadgeSVG({
-        credits: 0, label: "credits", months: 0, theme,
-      }));
+    // ETag based on content hash for conditional requests
+    const etag = `"${createHash("md5").update(svg).digest("hex")}"`;
+    res.setHeader("ETag", etag);
+
+    if (req.headers["if-none-match"] === etag) {
+      return res.status(304).end();
     }
 
-    const subscriber = getSubscriberByUserId(db, user.id);
-    const attr = subscriber
-      ? getCumulativeAttribution(db, subscriber.id)
-      : { total_carbon: 0, total_biodiversity: 0, total_uss: 0, total_contribution_cents: 0, months_active: 0 };
-
-    const totalCredits = attr.total_carbon + attr.total_biodiversity + attr.total_uss;
-
-    // Pick the most meaningful label
-    let credits = totalCredits;
-    let label = "credits";
-    if (attr.total_carbon > 0 && attr.total_biodiversity === 0 && attr.total_uss === 0) {
-      credits = attr.total_carbon; label = "carbon credits";
-    } else if (totalCredits === 0) {
-      credits = 0; label = "credits";
-    }
-
-    res.send(usageBadgeSVG({
-      credits, label, theme,
-      months: attr.months_active,
-    }));
+    res.send(svg);
   });
 
   // Main page

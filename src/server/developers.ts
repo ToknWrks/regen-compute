@@ -1,10 +1,10 @@
 /**
- * /developers — Developer & Reseller documentation page
+ * /developers — Developer documentation page
  *
- * Covers three integration paths:
- *   1. MCP Server   — Claude / Cursor plugin (no code required)
- *   2. REST API     — Any app, agent framework, or backend
- *   3. Reseller     — White-label / branded subscription product
+ * Covers three tabs:
+ *   1. MCP Server    — Claude / Cursor plugin (no code required)
+ *   2. REST API      — Any app, agent framework, or backend
+ *   3. API Reference — Full endpoint docs
  */
 
 import { Router, Request, Response } from "express";
@@ -29,7 +29,7 @@ function developersPageHTML(): string {
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Developers — Regenerative Compute</title>
-  <meta name="description" content="Build on Regenerative Compute. REST API, MCP server, and reseller integration docs."/>
+  <meta name="description" content="Build on Regenerative Compute. MCP server, REST API, and API reference docs."/>
   ${brandFonts()}
   <style>
     ${brandCSS()}
@@ -264,19 +264,6 @@ function developersPageHTML(): string {
     .dev-code .st  { color: #fb923c; }                /* string */
     .dev-code .nm  { color: var(--regen-green); }     /* number / key */
 
-    /* ---- path cards (reseller section) ---- */
-    .dev-paths { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 24px 0; }
-    .dev-path {
-      background: var(--regen-white);
-      border: 1px solid var(--regen-gray-200);
-      border-radius: 12px;
-      padding: 24px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    }
-    .dev-path__icon { font-size: 28px; margin-bottom: 12px; }
-    .dev-path h3 { font-size: 16px; font-weight: 700; color: var(--regen-navy); margin: 0 0 8px; }
-    .dev-path p { font-size: 14px; color: var(--regen-gray-700); line-height: 1.6; margin: 0; }
-
     /* ---- auth box ---- */
     .dev-auth-box {
       background: #fffbeb;
@@ -379,7 +366,6 @@ ${brandHeader({ nav: NAV })}
 <div class="dev-tabs">
   <button class="dev-tab active" data-tab="mcp">MCP Server</button>
   <button class="dev-tab" data-tab="api">REST API</button>
-  <!-- <button class="dev-tab" data-tab="reseller">Reseller</button> -->
   <button class="dev-tab" data-tab="reference">API Reference</button>
 </div>
 
@@ -515,113 +501,9 @@ curl -X POST -H "Authorization: Bearer $REGEN_API_KEY" \
   </div>
 </div>
 
-<!-- ================================================================
-     TAB 3 — RESELLER (hidden for now)
-================================================================
-
-<div class="dev-panel" id="tab-reseller">
-
-  <h2 class="dev-h2">Become a Reseller</h2>
-  <p class="dev-lead">
-    Deploy your own branded ecological compute product. You set the pricing, run the frontend,
-    and keep the spread. The retirement infrastructure — Regen Ledger, on-chain certificates,
-    credit routing — runs under the hood.
-  </p>
-
-  <div class="dev-paths">
-    <div class="dev-path">
-      <div class="dev-path__icon">⚡</div>
-      <h3>Referral / affiliate</h3>
-      <p>Share your referral link. Friends get a free first month and you earn credits toward your own subscription.</p>
-    </div>
-    <div class="dev-path">
-      <div class="dev-path__icon">🔌</div>
-      <h3>API integration</h3>
-      <p>Call <code>/api/v1/retire</code> from your own checkout flow. Charge your users whatever you like and retire on their behalf.</p>
-    </div>
-    <div class="dev-path">
-      <div class="dev-path__icon">🏷️</div>
-      <h3>White-label deploy</h3>
-      <p>Fork the open-source repo, add your brand, plug in your Stripe keys, and deploy to your own domain.</p>
-    </div>
-  </div>
-
-  <h3 class="dev-h3">White-label quick start</h3>
-  <ol class="dev-steps">
-    <li>
-      <span class="dev-step-num">1</span>
-      <span class="dev-step-text">
-        <strong>Fork the repo</strong><br/>
-        <code>git clone https://github.com/regen-network/regen-compute</code><br/>
-        Open-source under Apache 2.0 — fork freely.
-      </span>
-    </li>
-    <li>
-      <span class="dev-step-num">2</span>
-      <span class="dev-step-text">
-        <strong>Configure your environment</strong><br/>
-        Copy <code>.env.example</code> to <code>.env</code>. At minimum you need:
-        <div class="dev-code" style="margin-top:8px;">STRIPE_SECRET_KEY=sk_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-REGEN_WALLET_MNEMONIC=word1 word2 ... word24
-REGEN_SERVER_URL=https://your-domain.com
-SESSION_SECRET=your-random-secret</div>
-      </span>
-    </li>
-    <li>
-      <span class="dev-step-num">3</span>
-      <span class="dev-step-text">
-        <strong>Run Stripe setup</strong><br/>
-        Creates the subscription products and prices in your Stripe account.
-        <div class="dev-code" style="margin-top:8px;">npx tsx scripts/stripe-setup.ts</div>
-      </span>
-    </li>
-    <li>
-      <span class="dev-step-num">4</span>
-      <span class="dev-step-text">
-        <strong>Deploy</strong><br/>
-        Works on any Node.js 20+ host — Railway, Render, Fly.io, VPS. The server binds to <code>REGEN_SERVER_PORT</code> (default 3141).
-        <div class="dev-code" style="margin-top:8px;">npm install &amp;&amp; npm run build &amp;&amp; npm start</div>
-      </span>
-    </li>
-    <li>
-      <span class="dev-step-num">5</span>
-      <span class="dev-step-text">
-        <strong>Fund your wallet</strong><br/>
-        The wallet mnemonic controls the address that signs retirement transactions on Regen Ledger.
-        Send REGEN tokens to it for gas, and keep USDC on the chain to purchase credits.
-      </span>
-    </li>
-  </ol>
-
-  <h3 class="dev-h3">Revenue model</h3>
-  <p class="dev-lead">
-    You control the Stripe account — subscription revenue flows directly to you. You pay for credit
-    retirement at market rates (live sell orders from Regen Ledger). The spread is yours.
-  </p>
-  <table class="dev-table">
-    <thead><tr><th>Item</th><th>Who controls it</th></tr></thead>
-    <tbody>
-      <tr><td>Subscription pricing</td><td>You (set in Stripe)</td></tr>
-      <tr><td>Credit purchase price</td><td>Regen Ledger (live market)</td></tr>
-      <tr><td>Stripe revenue</td><td>Flows to your Stripe account</td></tr>
-      <tr><td>On-chain retirement</td><td>Regen Network (immutable, verifiable)</td></tr>
-      <tr><td>Certificates</td><td>Public — your users can share them</td></tr>
-    </tbody>
-  </table>
-
-  <div class="dev-auth-box" style="border-color:rgba(79,181,115,0.3);background:rgba(79,181,115,0.05);">
-    <h3 style="color:var(--regen-green)">Want to be listed as an official reseller?</h3>
-    <p>Reach out to the Regen Network team to discuss partnership, co-marketing, and supplier access.
-    Official resellers get early access to new credit types and help shape the revenue-split model.</p>
-    <a href="https://t.me/regen_network_pub" target="_blank" rel="noopener" class="regen-btn regen-btn--primary" style="display:inline-block;margin-top:4px;">Contact the team on Telegram</a>
-  </div>
-</div>
-
--->
 
 <!-- ================================================================
-     TAB 4 — API REFERENCE
+     TAB 3 — API REFERENCE
 ================================================================ -->
 <div class="dev-panel" id="tab-reference">
 
