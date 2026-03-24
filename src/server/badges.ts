@@ -21,25 +21,33 @@ function loadIconBase64(filename: string): string {
   return `data:image/png;base64,${data.toString("base64")}`;
 }
 
-// Regen Network geometric mark (the organic "R" icon — extracted from brand.ts regenLogoSVG,
-// cropped to the left 82×84 area which contains only the mark, not the wordmark).
+// Regen Network geometric mark — inline SVG group, scaled to fit a square at (x, y).
+// viewBox is 0 0 82 84; scale to target size using transform.
+// Using inline paths avoids nested data URI issues (browsers block data: inside data:).
+function regenMarkInlineSVG(x: number, y: number, size: number, color: string): string {
+  const sx = (size / 82).toFixed(4);
+  const sy = (size / 84).toFixed(4);
+  return `<g transform="translate(${x},${y}) scale(${sx},${sy})" fill="${color}">
+    <path d="M39.83 27.32V27.37L34.98 1.8L30.97.52 28.44 3.92 39.83 27.32Z"/>
+    <path d="M42.46 16.65L44.52 26.55 46.73 16.5 44.57 15.05 42.46 16.65Z"/>
+    <path d="M57.76 18.4L55.13 18.66 52.04 28.46 58.84 20.78 57.76 18.4Z"/>
+    <path d="M80.22 20.47V16.29L76.15 15 57.09 32.89 80.22 20.47Z"/>
+    <path d="M33.64 31.03L27.98 22.53 28.08 22.73 27.98 22.53 25.4 22.94 24.99 25.52 33.64 31.03Z"/>
+    <path d="M70.12 39.7L59.97 41.71 70.12 43.92 71.67 41.81 70.12 39.7Z"/>
+    <path d="M29.11 41.76L3.04 38.46.52 41.86 3.04 45.26 29.11 41.76Z"/>
+    <path d="M19.48 47.43L18.7 49.85 20.82 51.4 29.83 46.35 19.48 47.43Z"/>
+    <path d="M22.46 54.59L22.36 57.17 24.83 58.05 32.05 50.47 22.46 54.59Z"/>
+    <path d="M35.45 53.98L27.77 60.73 28.44 63.2 31.07 63.31 35.45 53.98Z"/>
+    <path d="M44.57 56.97L42.51 66.97 44.62 68.46 46.73 66.92 44.57 56.97Z"/>
+    <path d="M80.27 63.05L57.09 50.73 76.25 68.51 80.27 67.22V63.05Z"/>
+    <path d="M54.72 64.96L49.51 56.24 50.7 66.25 53.17 67.02 54.72 64.96Z"/>
+    <path d="M39.88 56.24L28.6 79.7 31.12 83.1 35.14 81.81 39.88 56.24Z"/>
+  </g>`;
+}
+
+// SVG data URI version — used for the icon picker preview and seal images (not nested inside badge SVGs).
 function regenMarkSVGDataURI(color = "white"): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 82 84" fill="${color}">
-<path d="M39.83 27.32V27.37L34.98 1.8L30.97.52 28.44 3.92 39.83 27.32Z"/>
-<path d="M42.46 16.65L44.52 26.55 46.73 16.5 44.57 15.05 42.46 16.65Z"/>
-<path d="M57.76 18.4L55.13 18.66 52.04 28.46 58.84 20.78 57.76 18.4Z"/>
-<path d="M80.22 20.47V16.29L76.15 15 57.09 32.89 80.22 20.47Z"/>
-<path d="M33.64 31.03L27.98 22.53 28.08 22.73 27.98 22.53 25.4 22.94 24.99 25.52 33.64 31.03Z"/>
-<path d="M70.12 39.7L59.97 41.71 70.12 43.92 71.67 41.81 70.12 39.7Z"/>
-<path d="M29.11 41.76L3.04 38.46.52 41.86 3.04 45.26 29.11 41.76Z"/>
-<path d="M19.48 47.43L18.7 49.85 20.82 51.4 29.83 46.35 19.48 47.43Z"/>
-<path d="M22.46 54.59L22.36 57.17 24.83 58.05 32.05 50.47 22.46 54.59Z"/>
-<path d="M35.45 53.98L27.77 60.73 28.44 63.2 31.07 63.31 35.45 53.98Z"/>
-<path d="M44.57 56.97L42.51 66.97 44.62 68.46 46.73 66.92 44.57 56.97Z"/>
-<path d="M80.27 63.05L57.09 50.73 76.25 68.51 80.27 67.22V63.05Z"/>
-<path d="M54.72 64.96L49.51 56.24 50.7 66.25 53.17 67.02 54.72 64.96Z"/>
-<path d="M39.88 56.24L28.6 79.7 31.12 83.1 35.14 81.81 39.88 56.24Z"/>
-</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 82 84">${regenMarkInlineSVG(0, 0, 82, color)}</svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
@@ -70,8 +78,6 @@ function compactBadgeSVG(theme: "dark" | "light" | "green"): string {
   };
   const t = themes[theme];
   const borderAttr = t.border ? `stroke="${t.border}" stroke-width="1.5"` : "";
-  const markUri = regenMarkSVGDataURI(t.mark);
-
   return `<svg xmlns="http://www.w3.org/2000/svg" width="150" height="32" viewBox="0 0 150 32" role="img" aria-label="Powered by Regenerative Compute">
   <defs>
     <clipPath id="clip-${theme}"><rect width="150" height="32" rx="5"/></clipPath>
@@ -79,7 +85,7 @@ function compactBadgeSVG(theme: "dark" | "light" | "green"): string {
   <g clip-path="url(#clip-${theme})">
     <rect width="150" height="32" fill="${t.bg}" rx="5"/>
     ${t.border ? `<rect width="150" height="32" fill="none" rx="5" ${borderAttr}/>` : ""}
-    <image href="${markUri}" x="5" y="4" width="24" height="24"/>
+    ${regenMarkInlineSVG(5, 4, 24, t.mark)}
     <text x="35" y="20" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="12" font-weight="600" fill="${t.label}" letter-spacing="0.01em">Regen Compute</text>
   </g>
 </svg>`;
