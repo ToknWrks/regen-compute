@@ -65,7 +65,7 @@ const ICON_DATA_URI = ICON_DATA_URIS["1"] || "";
 function compactBadgeSVG(theme: "dark" | "light" | "green"): string {
   const themes = {
     dark:  { bg: "#0a2e1f", label: "rgba(255,255,255,0.88)", mark: "white",    border: "" },
-    light: { bg: "#f0faf4", label: "#0a2e1f",                mark: "#1a5c3a",  border: "#c3e8d0" },
+    light: { bg: "#f0faf4", label: "#0a2e1f",                mark: "#0a2e1f",  border: "#c3e8d0" },
     green: { bg: "#1a6640", label: "rgba(255,255,255,0.92)", mark: "white",    border: "" },
   };
   const t = themes[theme];
