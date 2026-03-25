@@ -32,6 +32,7 @@ import { createAiPluginRoutes } from "./ai-plugin.js";
 import { createUnicornRoutes } from "./unicorns.js";
 import { createRainbowRoutes } from "./rainbows.js";
 import { createAgentViewRoutes } from "./agent-view.js";
+import { createX402Middleware } from "./x402-middleware.js";
 import { loadConfig } from "../config.js";
 import { regenLogoSVG, regenLogoPNG } from "./brand.js";
 import { getSubscribersNeedingRenewal, markRenewalReminderSent, type RenewalLevel } from "./db.js";
@@ -217,9 +218,9 @@ export function startServer(options: { port?: number; dbPath?: string } = {}) {
         { id: "check_subscription", name: "Check Subscription Status", description: "Check subscriber status, cumulative impact, and referral link" },
       ],
       authentication: {
-        schemes: ["bearer"],
+        schemes: ["bearer", "x402"],
         credentials_url: "https://compute.regen.network",
-        description: "API key obtained via subscription. Install MCP server for key-free access.",
+        description: "API key via subscription, or x402 per-request payment (USDC on Base). x402-enabled agents can pay automatically.",
       },
       defaultInputModes: ["application/json"],
       defaultOutputModes: ["application/json"],
@@ -387,6 +388,14 @@ export function startServer(options: { port?: number; dbPath?: string } = {}) {
 
 
   if (stripe) {
+    // x402 payment protocol middleware (opt-in via X402_ENABLED=true)
+    // Must be mounted BEFORE API routes so it can intercept unauthenticated requests
+    if (process.env.X402_ENABLED === "true") {
+      const x402Middleware = createX402Middleware({ db, baseUrl });
+      app.use(x402Middleware);
+      console.log(`  x402 protocol: enabled (facilitator: ${process.env.X402_FACILITATOR_URL || "https://x402.org/facilitator"})`);
+    }
+
     // Developer API routes (require Stripe for the full API key system)
     const apiRoutes = createApiRoutes(db, baseUrl, config);
     app.use(apiRoutes);
