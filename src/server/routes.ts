@@ -3441,7 +3441,7 @@ async function processScheduledRetirements(db: Database.Database, baseUrl?: stri
 // --- Auto burn trigger ---
 
 /** Minimum pending burn budget before triggering a swap-and-burn (in cents). */
-const AUTO_BURN_THRESHOLD_CENTS = 100; // $1.00
+const AUTO_BURN_THRESHOLD_CENTS = 500; // $5.00
 
 /** Debounce: don't trigger another burn if one ran within the last hour. */
 const BURN_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
