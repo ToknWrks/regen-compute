@@ -185,7 +185,7 @@
       "get": {
         "operationId": "getAccounting",
         "summary": "Get financial accounting summary",
-        "description": "Returns a complete financial summary including revenue, Stripe fees, credit/burn/ops allocation splits, credit spending, REGEN burns, subscriber stats, and monthly breakdown. Previously CLI-only.",
+        "description": "Admin-only endpoint. Returns a complete financial summary including revenue, Stripe fees, credit/burn/ops allocation splits, credit spending, REGEN burns, subscriber stats, and monthly breakdown. Previously CLI-only.",
         "responses": {
           "200": {
             "description": "Financial accounting summary",
@@ -193,6 +193,41 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AccountingResponse"
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "description": "Forbidden — admin access required" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/pool/history": {
+      "get": {
+        "operationId": "getPoolHistory",
+        "summary": "Get pool retirement history",
+        "description": "Returns the history of monthly pool retirement runs with revenue, credit retirements, burn allocations, and per-subscriber attributions for the most recent run.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of pool runs to return (max 50)",
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pool run history with attributions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolHistoryResponse"
                 }
               }
             }
@@ -235,6 +270,147 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/burn/history": {
+      "get": {
+        "operationId": "getBurnHistory",
+        "summary": "Get REGEN burn history",
+        "description": "Returns the full burn ledger including pending burn budget, total REGEN burned, and individual burn transaction records.",
+        "responses": {
+          "200": {
+            "description": "Burn history with accumulator status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BurnHistoryResponse"
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/ecobridge/tokens": {
+      "get": {
+        "operationId": "getEcoBridgeTokens",
+        "summary": "List ecoBridge supported tokens",
+        "description": "Returns all tokens and chains supported by ecoBridge for cross-chain credit retirement payments. Tokens are grouped by chain with current USD prices.",
+        "parameters": [
+          {
+            "name": "chain",
+            "in": "query",
+            "description": "Filter by chain name (e.g., 'ethereum', 'polygon', 'base')",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Supported tokens grouped by chain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EcoBridgeTokensResponse"
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/ecobridge/projects": {
+      "get": {
+        "operationId": "getEcoBridgeProjects",
+        "summary": "List ecoBridge projects",
+        "description": "Returns all ecological projects available for credit retirement via ecoBridge, including pricing and location details.",
+        "responses": {
+          "200": {
+            "description": "Available ecoBridge projects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EcoBridgeProjectsResponse"
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/community/goals": {
+      "get": {
+        "operationId": "getCommunityGoals",
+        "summary": "Get community goals and progress",
+        "description": "Returns the active community retirement goal, progress toward it, subscriber count, total credits retired, and historical goals.",
+        "responses": {
+          "200": {
+            "description": "Community goals and progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityGoalsResponse"
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/scheduled-retirements": {
+      "get": {
+        "operationId": "getScheduledRetirements",
+        "summary": "List scheduled retirements",
+        "description": "Returns scheduled retirements with status breakdown. Scheduled retirements are created from yearly subscriptions and executed on their scheduled date.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by status (pending, running, completed, partial, failed)",
+            "schema": {
+              "type": "string",
+              "enum": ["pending", "running", "completed", "partial", "failed"]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of retirements to return (max 200)",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scheduled retirements with status summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledRetirementsResponse"
                 }
               }
             }
@@ -512,6 +688,194 @@
                 "status_code": { "type": "integer" },
                 "response_time_ms": { "type": "integer", "nullable": true },
                 "created_at": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "PoolHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "total_runs": { "type": "integer" },
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "integer" },
+                "run_date": { "type": "string" },
+                "status": { "type": "string" },
+                "dry_run": { "type": "boolean" },
+                "subscriber_count": { "type": "integer" },
+                "total_revenue_cents": { "type": "integer" },
+                "total_spent_cents": { "type": "integer" },
+                "carbon_credits_retired": { "type": "number" },
+                "biodiversity_credits_retired": { "type": "number" },
+                "uss_credits_retired": { "type": "number" },
+                "burn_allocation_cents": { "type": "integer" },
+                "ops_allocation_cents": { "type": "integer" },
+                "carry_forward_cents": { "type": "integer" }
+              }
+            }
+          },
+          "latest_attributions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subscriber_id": { "type": "integer" },
+                "contribution_cents": { "type": "integer" },
+                "carbon_credits": { "type": "number" },
+                "biodiversity_credits": { "type": "number" },
+                "uss_credits": { "type": "number" }
+              }
+            }
+          }
+        }
+      },
+      "BurnHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "pending_burn_budget_cents": { "type": "integer" },
+          "total_regen_burned": { "type": "number" },
+          "total_allocation_cents": { "type": "integer" },
+          "total_burn_transactions": { "type": "integer" },
+          "burns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "integer" },
+                "date": { "type": "string" },
+                "allocation_cents": { "type": "integer" },
+                "regen_burned": { "type": "number" },
+                "regen_price_usd": { "type": "number", "nullable": true },
+                "tx_hash": { "type": "string", "nullable": true },
+                "status": { "type": "string" },
+                "source": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "EcoBridgeTokensResponse": {
+        "type": "object",
+        "properties": {
+          "total_tokens": { "type": "integer" },
+          "chains": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chain": { "type": "string" },
+                "tokens": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "symbol": { "type": "string" },
+                      "name": { "type": "string" },
+                      "priceUsd": { "type": "number", "nullable": true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "CommunityGoalsResponse": {
+        "type": "object",
+        "properties": {
+          "active_goal": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "id": { "type": "integer" },
+              "label": { "type": "string" },
+              "target_credits": { "type": "number" },
+              "deadline": { "type": "string", "nullable": true },
+              "progress_percent": { "type": "number", "nullable": true },
+              "completed": { "type": "boolean" },
+              "created_at": { "type": "string" }
+            }
+          },
+          "community_stats": {
+            "type": "object",
+            "properties": {
+              "total_credits_retired": { "type": "number" },
+              "active_subscribers": { "type": "integer" }
+            }
+          },
+          "goals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "integer" },
+                "label": { "type": "string" },
+                "target_credits": { "type": "number" },
+                "deadline": { "type": "string", "nullable": true },
+                "active": { "type": "boolean" },
+                "created_at": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "EcoBridgeProjectsResponse": {
+        "type": "object",
+        "properties": {
+          "total_projects": { "type": "integer" },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "description": { "type": "string", "nullable": true },
+                "credit_class": { "type": "string", "nullable": true },
+                "price": { "type": "number", "nullable": true },
+                "unit": { "type": "string", "nullable": true },
+                "location": { "type": "string", "nullable": true },
+                "type": { "type": "string", "nullable": true }
+              }
+            }
+          }
+        }
+      },
+      "ScheduledRetirementsResponse": {
+        "type": "object",
+        "properties": {
+          "stats": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "pending": { "type": "integer" },
+              "completed": { "type": "integer" },
+              "partial": { "type": "integer" },
+              "failed": { "type": "integer" },
+              "running": { "type": "integer" }
+            }
+          },
+          "retirements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "integer" },
+                "subscriber_id": { "type": "integer" },
+                "gross_amount_cents": { "type": "integer" },
+                "net_amount_cents": { "type": "integer" },
+                "billing_interval": { "type": "string" },
+                "scheduled_date": { "type": "string" },
+                "status": { "type": "string" },
+                "retirement_id": { "type": "integer", "nullable": true },
+                "error": { "type": "string", "nullable": true },
+                "retry_count": { "type": "integer" },
+                "created_at": { "type": "string" },
+                "executed_at": { "type": "string", "nullable": true }
               }
             }
           }

@@ -44,6 +44,14 @@ import { toUsdCents } from "../services/crypto-price.js";
 import { deriveSubscriberAddress } from "../services/subscriber-wallet.js";
 import { calculateNetAfterStripe, retireForSubscriber } from "../services/retire-subscriber.js";
 import { getFinancialSummary } from "../services/accounting.js";
+import { getBurnLedger } from "../services/accounting.js";
+import { getSupportedTokens, getProjects as getEcoBridgeProjects } from "../services/ecobridge.js";
+import {
+  getActiveCommunityGoal,
+  getCommunityTotalCreditsRetired,
+  getCommunitySubscriberCount,
+  type ScheduledRetirement,
+} from "./db.js";
 
 // Credit type abbreviation to human-readable name
 const CREDIT_TYPE_NAMES: Record<string, string> = {
@@ -736,6 +744,12 @@ export function createApiRoutes(
     const user = getUser(req);
     if (!user) return;
 
+    // Admin-only: restrict to known admin email
+    const ADMIN_EMAILS = new Set(["christian@regen.network"]);
+    if (!user.email || !ADMIN_EMAILS.has(user.email)) {
+      return apiError(res, 403, "FORBIDDEN", "This endpoint requires admin access");
+    }
+
     try {
       const summary = getFinancialSummary(db);
       res.json(summary);
@@ -813,6 +827,289 @@ export function createApiRoutes(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       apiError(res, 500, "INTERNAL_ERROR", `Failed to fetch usage data: ${msg}`);
+    }
+  });
+
+
+  // --- GET /api/v1/pool/history ---
+  router.get("/api/v1/pool/history", (req: Request, res: Response) => {
+    const user = getUser(req);
+    if (!user) return;
+
+    const limit = Math.min(parseInt((req.query.limit as string) || "10", 10), 50);
+
+    try {
+      const runs = db.prepare(
+        "SELECT * FROM pool_runs ORDER BY id DESC LIMIT ?"
+      ).all(limit) as Array<{
+        id: number; run_date: string; status: string;
+        total_revenue_cents: number; total_spent_cents: number;
+        carbon_credits_retired: number; carbon_tx_hash: string | null;
+        biodiversity_credits_retired: number; biodiversity_tx_hash: string | null;
+        uss_credits_retired: number; uss_tx_hash: string | null;
+        burn_allocation_cents: number; burn_tx_hash: string | null;
+        ops_allocation_cents: number; carry_forward_cents: number;
+        subscriber_count: number; dry_run: number;
+        error_log: string | null; created_at: string; completed_at: string | null;
+      }>;
+
+      // Get attributions for the most recent run
+      let latestAttributions: Array<{
+        subscriber_id: number; contribution_cents: number;
+        carbon_credits: number; biodiversity_credits: number; uss_credits: number;
+      }> = [];
+      if (runs.length > 0) {
+        latestAttributions = db.prepare(
+          "SELECT subscriber_id, contribution_cents, carbon_credits, biodiversity_credits, uss_credits FROM attributions WHERE pool_run_id = ?"
+        ).all(runs[0].id) as typeof latestAttributions;
+      }
+
+      res.json({
+        total_runs: runs.length,
+        runs: runs.map((r) => ({
+          id: r.id,
+          run_date: r.run_date,
+          status: r.status,
+          dry_run: !!r.dry_run,
+          subscriber_count: r.subscriber_count,
+          total_revenue_cents: r.total_revenue_cents,
+          total_spent_cents: r.total_spent_cents,
+          carbon_credits_retired: r.carbon_credits_retired,
+          biodiversity_credits_retired: r.biodiversity_credits_retired,
+          uss_credits_retired: r.uss_credits_retired,
+          burn_allocation_cents: r.burn_allocation_cents,
+          ops_allocation_cents: r.ops_allocation_cents,
+          carry_forward_cents: r.carry_forward_cents,
+          error_log: r.error_log,
+          created_at: r.created_at,
+          completed_at: r.completed_at,
+        })),
+        latest_attributions: latestAttributions,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      apiError(res, 500, "INTERNAL_ERROR", `Failed to fetch pool history: ${msg}`);
+    }
+  });
+
+  // --- GET /api/v1/burn/history ---
+  router.get("/api/v1/burn/history", (req: Request, res: Response) => {
+    const user = getUser(req);
+    if (!user) return;
+
+    try {
+      const entries = getBurnLedger(db);
+
+      // Pending burn budget
+      const pendingRow = db.prepare(`
+        SELECT COALESCE(SUM(amount_cents), 0) AS total
+        FROM burn_accumulator WHERE executed = 0
+      `).get() as { total: number } | undefined;
+      const pendingCents = pendingRow?.total ?? 0;
+
+      // Totals
+      const totalRegen = entries
+        .filter((e) => e.status === "completed")
+        .reduce((sum, e) => sum + e.regenBurned, 0);
+      const totalAllocationCents = entries.reduce((sum, e) => sum + e.allocationCents, 0);
+
+      res.json({
+        pending_burn_budget_cents: pendingCents,
+        total_regen_burned: totalRegen,
+        total_allocation_cents: totalAllocationCents,
+        total_burn_transactions: entries.filter((e) => e.status === "completed").length,
+        burns: entries.map((e) => ({
+          id: e.id,
+          date: e.date,
+          allocation_cents: e.allocationCents,
+          regen_burned: e.regenBurned,
+          regen_price_usd: e.regenPriceUsd,
+          tx_hash: e.txHash,
+          status: e.status,
+          source: e.source,
+        })),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      apiError(res, 500, "INTERNAL_ERROR", `Failed to fetch burn history: ${msg}`);
+    }
+  });
+
+  // --- GET /api/v1/community/goals ---
+  router.get("/api/v1/community/goals", (req: Request, res: Response) => {
+    const user = getUser(req);
+    if (!user) return;
+
+    try {
+      const activeGoal = getActiveCommunityGoal(db);
+      const totalCredits = getCommunityTotalCreditsRetired(db);
+      const subscriberCount = getCommunitySubscriberCount(db);
+
+      const allGoals = db.prepare(
+        "SELECT * FROM community_goals ORDER BY id DESC"
+      ).all() as Array<{
+        id: number; goal_label: string; goal_credits: number;
+        goal_deadline: string | null; active: number; created_at: string;
+      }>;
+
+      let progress: number | null = null;
+      let completed = false;
+      if (activeGoal && activeGoal.goal_credits > 0) {
+        progress = Math.min((totalCredits / activeGoal.goal_credits) * 100, 100);
+        completed = progress >= 100;
+      }
+
+      res.json({
+        active_goal: activeGoal ? {
+          id: activeGoal.id,
+          label: activeGoal.goal_label,
+          target_credits: activeGoal.goal_credits,
+          deadline: activeGoal.goal_deadline,
+          progress_percent: progress !== null ? parseFloat(progress.toFixed(1)) : null,
+          completed,
+          created_at: activeGoal.created_at,
+        } : null,
+        community_stats: {
+          total_credits_retired: totalCredits,
+          active_subscribers: subscriberCount,
+        },
+        goals: allGoals.map((g) => ({
+          id: g.id,
+          label: g.goal_label,
+          target_credits: g.goal_credits,
+          deadline: g.goal_deadline,
+          active: !!g.active,
+          created_at: g.created_at,
+        })),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      apiError(res, 500, "INTERNAL_ERROR", `Failed to fetch community goals: ${msg}`);
+    }
+  });
+
+  // --- GET /api/v1/scheduled-retirements ---
+  router.get("/api/v1/scheduled-retirements", (req: Request, res: Response) => {
+    const user = getUser(req);
+    if (!user) return;
+
+    const status = (req.query.status as string) || undefined;
+    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), 200);
+
+    try {
+      let query = "SELECT * FROM scheduled_retirements";
+      const params: unknown[] = [];
+
+      if (status) {
+        query += " WHERE status = ?";
+        params.push(status);
+      }
+
+      query += " ORDER BY scheduled_date DESC LIMIT ?";
+      params.push(limit);
+
+      const retirements = db.prepare(query).all(...params) as ScheduledRetirement[];
+
+      // Summary stats
+      const statsRow = db.prepare(`
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+          SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
+          SUM(CASE WHEN status = 'partial' THEN 1 ELSE 0 END) AS partial,
+          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+          SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running
+        FROM scheduled_retirements
+      `).get() as {
+        total: number; pending: number; completed: number;
+        partial: number; failed: number; running: number;
+      };
+
+      res.json({
+        stats: {
+          total: statsRow.total,
+          pending: statsRow.pending,
+          completed: statsRow.completed,
+          partial: statsRow.partial,
+          failed: statsRow.failed,
+          running: statsRow.running,
+        },
+        retirements: retirements.map((r) => ({
+          id: r.id,
+          subscriber_id: r.subscriber_id,
+          gross_amount_cents: r.gross_amount_cents,
+          net_amount_cents: r.net_amount_cents,
+          billing_interval: r.billing_interval,
+          scheduled_date: r.scheduled_date,
+          status: r.status,
+          retirement_id: r.retirement_id,
+          error: r.error,
+          retry_count: r.retry_count,
+          created_at: r.created_at,
+          executed_at: r.executed_at,
+        })),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      apiError(res, 500, "INTERNAL_ERROR", `Failed to fetch scheduled retirements: ${msg}`);
+    }
+  });
+
+  // --- GET /api/v1/ecobridge/tokens ---
+  router.get("/api/v1/ecobridge/tokens", async (req: Request, res: Response) => {
+    const user = getUser(req);
+    if (!user) return;
+
+    const chain = (req.query.chain as string) || undefined;
+
+    try {
+      const tokens = await getSupportedTokens(chain);
+
+      // Group by chain
+      const byChain: Record<string, Array<{ symbol: string; name: string; priceUsd: number | null }>> = {};
+      for (const t of tokens) {
+        const key = t.chainName || t.chainId;
+        if (!byChain[key]) byChain[key] = [];
+        byChain[key].push({ symbol: t.symbol, name: t.name, priceUsd: t.priceUsd });
+      }
+
+      res.json({
+        total_tokens: tokens.length,
+        chains: Object.entries(byChain).map(([chainName, chainTokens]) => ({
+          chain: chainName,
+          tokens: chainTokens,
+        })),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      apiError(res, 503, "SERVICE_UNAVAILABLE", `Failed to fetch ecoBridge tokens: ${msg}`);
+    }
+  });
+
+  // --- GET /api/v1/ecobridge/projects ---
+  router.get("/api/v1/ecobridge/projects", async (req: Request, res: Response) => {
+    const user = getUser(req);
+    if (!user) return;
+
+    try {
+      const projects = await getEcoBridgeProjects();
+
+      res.json({
+        total_projects: projects.length,
+        projects: projects.map((p) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          credit_class: p.creditClass,
+          price: p.price,
+          unit: p.unit,
+          location: p.location,
+          type: p.type,
+        })),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      apiError(res, 503, "SERVICE_UNAVAILABLE", `Failed to fetch ecoBridge projects: ${msg}`);
     }
   });
 
