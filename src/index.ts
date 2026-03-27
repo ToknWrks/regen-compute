@@ -7,6 +7,8 @@ import { getRetirementCertificate } from "./tools/certificates.js";
 import { getImpactSummary } from "./tools/impact.js";
 import { retireCredits } from "./tools/retire.js";
 import { checkSubscriptionStatus } from "./tools/subscription.js";
+import { getBurnStatus } from "./tools/burn-status.js";
+import { getPoolHistory } from "./tools/pool-history.js";
 import { checkSupplyHealth } from "./tools/supply.js";
 import { getRegenPriceTool } from "./tools/regen-price.js";
 import { verifyPaymentTool } from "./tools/verify-payment.js";
@@ -486,6 +488,44 @@ server.tool(
   }
 );
 
+// Tool: REGEN burn status and accumulator
+server.tool(
+  "get_burn_status",
+  "Shows the current REGEN burn accumulator balance, total REGEN burned to date, and recent burn transactions. Use this when the user asks about the REGEN burn flywheel, wants to see how much REGEN has been burned from subscriptions, or is curious about the deflationary mechanism. The 5% burn allocation from each subscription payment buys and burns REGEN tokens on-chain.",
+  {},
+  {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  async () => {
+    return getBurnStatus();
+  }
+);
+
+// Tool: Pool run history and attributions
+server.tool(
+  "get_pool_history",
+  "Shows the history of monthly pool retirement runs and per-subscriber credit attributions. Use this when the user asks about past retirement batches, wants to see how subscription revenue was deployed, or needs to understand the pool retirement mechanism. Each pool run aggregates subscriber revenue and retires credits across multiple batches.",
+  {
+    limit: z
+      .number()
+      .optional()
+      .default(5)
+      .describe("Number of recent pool runs to show (default: 5)"),
+  },
+  {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  async ({ limit }) => {
+    return getPoolHistory(limit);
+  }
+);
+
 // Tool: Check tradable supply health across batches
 server.tool(
   "check_supply_health",
@@ -946,6 +986,94 @@ if (ecoBridgeEnabled) {
     }
   );
 }
+
+// Prompt: Check burn impact
+server.prompt(
+  "check_my_burn_impact",
+  "See how the REGEN burn flywheel works — pending burn budget, total REGEN burned, and recent burn transactions.",
+  async () => {
+    return {
+      messages: [
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: [
+              `I'd like to understand the REGEN burn mechanism and see its impact.`,
+              ``,
+              `Please:`,
+              `1. Use get_burn_status to show the current burn accumulator and history`,
+              `2. Explain how the 5% burn allocation works (subscription revenue → buy REGEN → burn on-chain)`,
+              `3. Summarize the total REGEN burned and what that means for the network`,
+              `4. If there's a pending burn budget, mention when the next burn is expected`,
+              ``,
+              `Frame this as the deflationary flywheel that makes every subscription more impactful over time.`,
+            ].join("\n"),
+          },
+        },
+      ],
+    };
+  }
+);
+
+// Prompt: Explore pool history
+server.prompt(
+  "explore_pool_history",
+  "Review the history of monthly pool retirement runs — how subscription revenue was deployed into ecological credits.",
+  async () => {
+    return {
+      messages: [
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: [
+              `Show me the history of Regenerative Compute pool retirements.`,
+              ``,
+              `Please:`,
+              `1. Use get_pool_history to pull recent pool runs`,
+              `2. Summarize how much revenue was collected and how many credits were retired`,
+              `3. Show the batch breakdown for the most recent run`,
+              `4. If subscriber attributions are available, explain how individual contributions are tracked`,
+              `5. Use get_impact_summary for broader network context`,
+              ``,
+              `Frame this as transparent accounting — every dollar traceable from subscription to on-chain retirement.`,
+            ].join("\n"),
+          },
+        },
+      ],
+    };
+  }
+);
+
+// Prompt: Check supply and retire
+server.prompt(
+  "check_supply_and_retire",
+  "Check what credits are available on the marketplace, assess supply health, and retire credits to fund regeneration.",
+  async () => {
+    return {
+      messages: [
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: [
+              `I'd like to check what ecological credits are available and potentially retire some.`,
+              ``,
+              `Please:`,
+              `1. Use browse_available_credits to show the current marketplace inventory`,
+              `2. Summarize the available credit types and pricing`,
+              `3. Use retire_credits to help me retire credits (on-chain or via marketplace link)`,
+              `4. After retirement, use get_retirement_certificate to retrieve the proof`,
+              ``,
+              `Help me choose based on impact and availability. Frame as funding ecological regeneration.`,
+            ].join("\n"),
+          },
+        },
+      ],
+    };
+  }
+);
 
 async function main() {
   const transport = new StdioServerTransport();
