@@ -462,6 +462,44 @@ export function startServer(options: { port?: number; dbPath?: string } = {}) {
     checkCryptoRenewals().catch(console.error);
   }, 24 * 60 * 60 * 1000);
 
+  // --- Convenience redirects for commonly guessed URLs ---
+  app.get("/pricing", (_req, res) => res.redirect(301, "/#pricing"));
+  app.get("/subscribe", (_req, res) => res.redirect(301, "/#pricing"));
+
+  // --- Custom 404 handler (must be last) ---
+  app.use((_req, res) => {
+    res.status(404).send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Page Not Found — Regenerative Compute</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+      background:linear-gradient(135deg,#0a3d2e 0%,#0d6b52 50%,#0f5a4a 100%);color:#fff}
+    .container{text-align:center;padding:2rem;max-width:480px}
+    h1{font-size:5rem;font-weight:200;opacity:0.3;margin-bottom:0.5rem}
+    h2{font-size:1.5rem;font-weight:400;margin-bottom:1rem}
+    p{opacity:0.8;margin-bottom:2rem;line-height:1.6}
+    a{display:inline-block;padding:0.75rem 2rem;background:rgba(255,255,255,0.15);
+      color:#fff;text-decoration:none;border-radius:8px;border:1px solid rgba(255,255,255,0.25);
+      transition:background 0.2s}
+    a:hover{background:rgba(255,255,255,0.25)}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>404</h1>
+    <h2>Page not found</h2>
+    <p>The page you're looking for doesn't exist. It may have been moved or removed.</p>
+    <a href="/">Back to Regenerative Compute</a>
+  </div>
+</body>
+</html>`);
+  });
+
   app.listen(port, () => {
     console.log(`Regenerative Compute server running on ${baseUrl}`);
     console.log(`  Certificates: ${baseUrl}/impact/:nodeId`);
